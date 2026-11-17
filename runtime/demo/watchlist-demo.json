@@ -1,0 +1,21 @@
+{
+  "core": [
+    {
+      "symbol": "US.SPY",
+      "target_pct": 0.3
+    },
+    {
+      "symbol": "US.QQQ",
+      "target_pct": 0.2
+    },
+    {
+      "symbol": "US.IWM",
+      "target_pct": 0.1
+    }
+  ],
+  "satellites": [
+    "US.AAPL",
+    "US.MSFT",
+    "US.NVDA"
+  ]
+}

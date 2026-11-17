@@ -1,0 +1,22 @@
+{
+  "min_price": 1.0,
+  "min_market_cap": 500000000,
+  "allowed_instrument_types": ["stock", "etf"],
+  "max_positions": 12,
+  "max_orders_per_day": 20,
+  "max_single_name_pct": 0.40,
+  "daily_stop_pct": -0.02,
+  "evidence_max_age_hours": 24,
+  "approval_ttl_minutes": 30,
+  "fee_bps": 3.0,
+  "min_fee": 1.0,
+  "strategy": {
+    "core_tranches": 3,
+    "satellite_max_names": 6,
+    "satellite_tranche_pct": 0.035,
+    "satellite_max_tranches": 3,
+    "satellite_near_high_pct": 0.05,
+    "satellite_exit_drawdown_pct": -0.08,
+    "min_weight_gap_pct": 0.01
+  }
+}

@@ -1,0 +1,2 @@
+{"event": "ORDER_SUBMITTED", "limit_price": 741.18, "order_id": "9001", "quantity": 13, "seq": 0, "side": "BUY", "symbol": "US.SPY", "ticket_id": "P-20261117-0945-SPY-01"}
+{"event": "RECONCILED", "filled": 13, "order_id": "9001", "position_quantity": 13, "seq": 1, "status": "FILLED", "submitted": 13, "unfilled": 0}

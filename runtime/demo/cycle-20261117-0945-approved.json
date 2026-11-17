@@ -1,0 +1,204 @@
+{
+  "entries_allowed": true,
+  "generated_at": "2026-11-17T14:50:00+00:00",
+  "records": [
+    {
+      "created_at": "2026-11-17T14:50:00+00:00",
+      "est_cost": 9635.34,
+      "evidence": [
+        {
+          "as_of": "2026-11-16T21:00:00+00:00",
+          "id": "Q-P-20261117-0945-SPY-01",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-17T12:30:00+00:00",
+          "id": "N-DEMO-SPY-1",
+          "kind": "news",
+          "source": "moomoo.news_search"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [],
+        "passed": true
+      },
+      "limit_price": 741.18,
+      "order_type": "LIMIT",
+      "proposal_hash": "f82d6e61d5479e3d34f44d080ece7b93eb14c7cea9cb47043b70f8304fa305b9",
+      "quantity": 13,
+      "rationale": "CORE_ENTRY: last 741.18, sma20 733.45, sma50 723.35, roc20 +2.10%",
+      "side": "BUY",
+      "sleeve": "core",
+      "status": "READY",
+      "symbol": "US.SPY",
+      "ticket_id": "P-20261117-0945-SPY-01"
+    },
+    {
+      "created_at": "2026-11-17T14:50:00+00:00",
+      "est_cost": 6128.4,
+      "evidence": [
+        {
+          "as_of": "2026-11-16T21:00:00+00:00",
+          "id": "Q-P-20261117-0945-QQQ-02",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-17T12:30:00+00:00",
+          "id": "N-DEMO-QQQ-1",
+          "kind": "news",
+          "source": "moomoo.news_search"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 612.84,
+      "order_type": "LIMIT",
+      "proposal_hash": "b2eb53f80a90dcc6d004212667c065e5d4a5c2a6732d23f0a87f0792b94d35e0",
+      "quantity": 10,
+      "rationale": "CORE_ENTRY: last 612.84, sma20 602.87, sma50 589.93, roc20 +3.31%",
+      "side": "BUY",
+      "sleeve": "core",
+      "status": "AWAITING_APPROVAL",
+      "symbol": "US.QQQ",
+      "ticket_id": "P-20261117-0945-QQQ-02"
+    },
+    {
+      "created_at": "2026-11-17T14:50:00+00:00",
+      "est_cost": 3145.35,
+      "evidence": [
+        {
+          "as_of": "2026-11-16T21:00:00+00:00",
+          "id": "Q-P-20261117-0945-IWM-03",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-17T12:30:00+00:00",
+          "id": "N-DEMO-IWM-1",
+          "kind": "news",
+          "source": "moomoo.news_search"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 241.95,
+      "order_type": "LIMIT",
+      "proposal_hash": "74ef3073d8cc3768b0d9cc19b71489312cd0e54beeca5aba25ca1783ee2164d5",
+      "quantity": 13,
+      "rationale": "CORE_ENTRY: last 241.95, sma20 237.83, sma50 232.45, roc20 +3.48%",
+      "side": "BUY",
+      "sleeve": "core",
+      "status": "AWAITING_APPROVAL",
+      "symbol": "US.IWM",
+      "ticket_id": "P-20261117-0945-IWM-03"
+    },
+    {
+      "created_at": "2026-11-17T14:50:00+00:00",
+      "est_cost": 3183.84,
+      "evidence": [
+        {
+          "as_of": "2026-11-16T21:00:00+00:00",
+          "id": "Q-P-20261117-0945-AAPL-04",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-17T12:30:00+00:00",
+          "id": "N-DEMO-AAPL-1",
+          "kind": "news",
+          "source": "moomoo.news_search"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 353.76,
+      "order_type": "LIMIT",
+      "proposal_hash": "7a7a4dd14891902f03eb02a485d250933560ac629a8b3228403ba471ca2cc236",
+      "quantity": 9,
+      "rationale": "SATELLITE_ENTRY: last 353.76, sma20 347.45, sma50 339.16, roc20 +3.66%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "AWAITING_APPROVAL",
+      "symbol": "US.AAPL",
+      "ticket_id": "P-20261117-0945-AAPL-04"
+    }
+  ],
+  "skipped": [
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.MSFT"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.NVDA"
+    }
+  ],
+  "slot": "09:45",
+  "trading_day": true
+}

@@ -1,0 +1,27 @@
+{
+  "core": [
+    { "symbol": "US.SPY", "target_pct": 0.30 },
+    { "symbol": "US.QQQ", "target_pct": 0.20 },
+    { "symbol": "US.IWM", "target_pct": 0.10 }
+  ],
+  "satellites": [
+    "US.AAPL",
+    "US.MSFT",
+    "US.NVDA",
+    "US.AMZN",
+    "US.GOOGL",
+    "US.META",
+    "US.AVGO",
+    "US.TSLA",
+    "US.JPM",
+    "US.V",
+    "US.UNH",
+    "US.XOM",
+    "US.LLY",
+    "US.COST",
+    "US.HD",
+    "US.PG",
+    "US.JNJ",
+    "US.WMT"
+  ]
+}

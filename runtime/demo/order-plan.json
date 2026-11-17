@@ -1,0 +1,33 @@
+{
+  "arguments": {
+    "acc_id": "5829804",
+    "market": 100,
+    "order_side": 1,
+    "order_type": 1,
+    "price": "741.1800",
+    "qty": "13",
+    "symbol": "US.SPY",
+    "text": "qdr:P-20261117-0945-SPY-01"
+  },
+  "gate": {
+    "checked": [
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "R5",
+      "R6",
+      "R7",
+      "R8",
+      "R9",
+      "R10",
+      "R11"
+    ],
+    "codes": [],
+    "passed": true
+  },
+  "proposal_hash": "f82d6e61d5479e3d34f44d080ece7b93eb14c7cea9cb47043b70f8304fa305b9",
+  "status": "READY",
+  "ticket_id": "P-20261117-0945-SPY-01",
+  "tool": "sim_trade_input_order"
+}

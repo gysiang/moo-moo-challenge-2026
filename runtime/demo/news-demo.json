@@ -1,0 +1,30 @@
+{
+  "US.SPY": [
+    {
+      "id": "N-DEMO-SPY-1",
+      "as_of": "2026-11-17T12:30:00Z",
+      "source": "moomoo.news_search"
+    }
+  ],
+  "US.QQQ": [
+    {
+      "id": "N-DEMO-QQQ-1",
+      "as_of": "2026-11-17T12:30:00Z",
+      "source": "moomoo.news_search"
+    }
+  ],
+  "US.IWM": [
+    {
+      "id": "N-DEMO-IWM-1",
+      "as_of": "2026-11-17T12:30:00Z",
+      "source": "moomoo.news_search"
+    }
+  ],
+  "US.AAPL": [
+    {
+      "id": "N-DEMO-AAPL-1",
+      "as_of": "2026-11-17T12:30:00Z",
+      "source": "moomoo.news_search"
+    }
+  ]
+}
