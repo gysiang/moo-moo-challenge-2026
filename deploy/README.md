@@ -32,12 +32,15 @@ break G3/R11, which is the one guarantee the submission is judged on.
 | Skill `moomoo-skill` | `skill_00vqv6tgmo0sgufw77p7` | pre-existing upload; the three challenge skills are **not** uploaded (console only) |
 | Deployments | — | **none created on purpose**: with no code mount and no MCP they would run, fail, and consume credits |
 
-What unblocks a real session, in order: (1) push `challenge-agent/` to a private GitHub repo
-and attach it to an agent/session as a resource; (2) attach a remote moomoo MCP URL to the
-agent (`update_agent`) — the local connector is a `managed-gateway` marketplace entry with
-no visible URL, so this has to come from the QCA console's connector page or moomoo's
-published endpoint; (3) have the environment networking switched to allow the MCP host.
-Until all three are true, the working path is the local one in §8.
+What unblocks a real session, in order: (1) attach
+`https://github.com/gysiang/moo-moo-challenge-2026` to the agent/session as a repository
+resource at `/data/workspace/moo-moo-challenge-2026` (public repo; the MCP tool still demands
+a token, so either pass a read-only PAT or clone it from `setup_script` — see §3.3); (2) attach a
+remote moomoo MCP URL to the agent (`update_agent`) — the local connector is a
+`managed-gateway` marketplace entry with no visible URL, so this has to come from moomoo's
+published endpoint or, if the connector is registered platform-side, its QCA connector page;
+(3) have the environment networking switched to allow the MCP host. Until all three are
+true, the working path is the local one in §8.
 
 ---
 
@@ -66,8 +69,9 @@ already proven and keeps the competition timeline intact.
 ## 2. Prerequisites
 
 1. Python ≥ 3.11 on the machine you test from (cloud images include it).
-2. The repo reachable by QCA: push `challenge-agent/` to a **private** GitHub repo
-   (QCA mounts repositories, not folders; a single uploaded file cannot carry the tree).
+2. The repo reachable by QCA: `challenge-agent/` is the root of
+   `https://github.com/gysiang/moo-moo-challenge-2026` (public; QCA mounts repositories,
+   not folders, and a single uploaded file cannot carry the tree).
 3. moomoo MCP server URL: open Qoder Desktop → MCP servers → the `moomoo` entry and copy
    its URL. Do not paste tokens into prompts or files.
 4. QCA console access for the two things the API refuses: **Skills** and **Vaults**.
@@ -96,26 +100,45 @@ Skills → **Create Skill** → upload `moomoo-scout-cycle.zip`, `moomoo-guard-e
             "setup_script": "python3 --version"}}
 ```
 
-Use it for both agents. If the console shows a networking toggle for it (MCP servers /
-egress), enable **MCP servers only** — the run needs moomoo, nothing else.
+Use it for both agents. Networking is **not** settable on the Environment object. The API
+reference lists only `type`, `packages`, `setup_script`, `startup_script`, `storage` for
+`config`, and the MCP `update_environment` tool rejects anything but `type`, `packages`,
+`setup_script`. The deployed environment reports
+
+```json
+{"networking":{"type":"limited","allow_mcp_servers":false,"allow_package_managers":false,"allowed_hosts":[]}}
+```
+
+so MCP tool calls out of the sandbox are closed until Qoder enables them for this Environment.
+There is no console toggle documented; open a request with Qoder support (`contact@qoder.com`)
+or the forum (`https://forum.qoder.com`) naming the environment ID and what it needs.
 
 ### 3.3 Mount the code
 
-Attach the private repo as a resource, mounted at `/workspace`:
+Attach the repo as a resource. Agent tools start in `/data`, and repositories belong under
+`/data/workspace/`:
 
 ```json
 {"type": "github_repository",
- "url": "https://github.com/<you>/<repo>.git",
- "authorization_token": "<fine-grained token, read-only>",
- "mount_path": "/workspace",
+ "url": "https://github.com/gysiang/moo-moo-challenge-2026",
+ "mount_path": "/data/workspace/moo-moo-challenge-2026",
  "checkout": {"type": "branch", "name": "main"}}
 ```
 
-The repo mount requires `authorization_token` inline in the API call (it is forwarded and
-never returned), so use a **fine-grained, read-only** token scoped to that single repo,
-create it for the competition window only, and rotate it on 1 Dec. Keep the deployment JSON
-you save in git as `deploy/qca-deployments.example.json` with the token blanked. Vaults
-(`vault_ids`) are for secrets the *agent* reads at runtime, not for this mount field.
+`mount_path` is free-form (it defaults to a path derived from the repo name when omitted).
+The repo root *is* the `challenge-agent` tree, so the mount path is the project root — not
+`.../moo-moo-challenge-2026/challenge-agent`.
+
+The docs say `authorization_token` is optional for public repos, but the QCA MCP
+`create_session` schema marks it **required**. Two ways through:
+
+- supply a fine-grained read-only PAT scoped to this one repo (public, so `Contents: Read`
+  is all it needs), pass it inline once, and revoke it after the session; or
+- skip the repository resource and clone in `config.setup_script` instead — the image ships
+  `git` and the repo is public, so `git clone --depth 1 https://github.com/gysiang/moo-moo-challenge-2026 /data/workspace/moo-moo-challenge-2026`
+  needs no credential at all.
+
+Vaults (`vault_ids`) are for secrets the *agent* reads at runtime, not for this mount field.
 
 ### 3.4 Prove the MCP path before building agents
 
@@ -125,8 +148,9 @@ Create a throwaway session on the Scout agent (§3.5) and ask it to run
 - **works** → continue;
 - **401/403** → the URL MCP has no credentials; register the moomoo connector through the
   QCA console connector page (OAuth there), or keep order tools local (§8);
-- **timeout / DNS** → environment networking is still closed; ask the console to allow
-  the MCP host for `moomoo-paper-env` before spending more time.
+- **timeout / DNS** → environment egress is still closed (`allow_mcp_servers: false`); that
+  is a platform-side change for `moomoo-paper-env`, not an API call (see §3.2). Stop and
+  raise the request before spending more time.
 
 Do not proceed until this check passes; everything downstream assumes it.
 
@@ -239,6 +263,33 @@ against a local `scout plan` on the same raw file: identical ticket ids and gate
 
 Never edit `order-plan.json`. A changed size or limit invalidates the approval hash and
 the gate will reject it at step 4 with `R11_NO_APPROVAL`. That is the contract working.
+
+### 4.1 Operator dashboard (local, read-only + approvals)
+
+```
+python -m dashboard --runtime runtime/demo --port 8765   # paper artefacts the pipeline wrote
+python -m dashboard --demo --port 8765                   # synthetic fixtures, never mutated
+python -m dashboard --runtime runtime/demo --no-cloud --port 8765   # skip Cloud reads
+```
+
+Serves `http://127.0.0.1:8765` (loopback only; non-loopback Host/Origin is refused). It
+reads `account-5829804.json`, `metrics.json`, `cycle-*.json`, `approvals.json`,
+`guard-events.jsonl` and `equity-history.jsonl` from `--runtime` (default `runtime/`), and
+appends the current equity point on each load when it has moved. If the directory has no
+`account-5829804.json`, the KPI row says so instead of rendering a fake −100%. **Approve**
+on an `AWAITING_APPROVAL` row writes the same hash-bound record as step 3 (cycle
+`proposal_hash`, 30 min TTL) and the row flips to `APPROVED`. The dashboard never imports
+the broker and never submits: steps 4–7 stay manual. Demo mode reads and writes only the
+`*-demo` files, so the fixtures are never mutated. Poll interval is 30 s.
+
+**Cloud agents card.** The bottom card lists recent Cloud Agents sessions (Scout cron runs
+included) and expands to each session's public event log. Reads go through the dashboard
+server: it loads `QODER_PAT_TKN` from `.env` (`--env-file`, default `.env`; gitignored) at
+startup and calls `https://api.qoder.com/api/v1/cloud` with
+`Authorization: Bearer <PAT>` from `GET /api/cloud/sessions` and `/api/cloud/events` only.
+The browser talks to loopback alone — the PAT is never serialized into a response, never in
+`app.js`, and error messages are redacted. Without the key (or with `--no-cloud`) the card
+shows "disabled" and the rest of the dashboard works unchanged.
 
 ---
 

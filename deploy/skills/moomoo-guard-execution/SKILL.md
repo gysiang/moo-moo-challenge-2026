@@ -8,7 +8,8 @@ description: Execute human-approved Moomoo paper orders on account 5829804 throu
 The only code path that places paper orders. Gate first, always: a rejection is logged
 and never reaches the broker.
 
-All commands run from `/workspace/challenge-agent`.
+All commands run from `/data/workspace/moo-moo-challenge-2026` in a cloud session (the
+local checkout otherwise).
 
 ## Inputs
 

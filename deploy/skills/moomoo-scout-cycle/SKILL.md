@@ -8,7 +8,8 @@ description: Run one Moomoo x Qoder Scout trading cycle on paper account 5829804
 Produces `runtime/cycle-<HHMM>.json`: deterministic tickets plus the gate verdict for
 each. The Scout proposes; a human approves; the Guard submits.
 
-Run from `/workspace/challenge-agent` (or the local checkout — paths are relative).
+Run from `/data/workspace/moo-moo-challenge-2026` in a cloud session, or from the local
+checkout — all paths below are relative to that root.
 
 ## Preconditions
 

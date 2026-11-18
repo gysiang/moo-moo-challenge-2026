@@ -1,0 +1,3 @@
+{"seq": 0, "event": "ORDER_SUBMITTED", "order_id": "9102", "ticket_id": "P-20261117-1530-AMD-01", "symbol": "US.AMD", "side": "BUY", "quantity": 5, "limit_price": 219.8}
+{"seq": 1, "event": "ORDER_SUBMITTED", "order_id": "9101", "ticket_id": "P-20261117-1330-SPY-01", "symbol": "US.SPY", "side": "BUY", "quantity": 3, "limit_price": 734.1}
+{"seq": 2, "event": "RECONCILED", "order_id": "9101", "submitted": 3, "filled": 3, "unfilled": 0, "status": "FILLED", "position_quantity": 13}

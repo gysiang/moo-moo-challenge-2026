@@ -8,7 +8,8 @@ description: Reconcile Moomoo paper-account state against the Guard event log an
 Evidence, not vibes: the JSONL log is the source of truth, `replay()` turns it back into
 state, and the same log replays to the same bytes.
 
-Run from `/workspace/challenge-agent`.
+Run from `/data/workspace/moo-moo-challenge-2026` in a cloud session (the local checkout
+otherwise).
 
 ## Event vocabulary
 

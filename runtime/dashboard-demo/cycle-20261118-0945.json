@@ -1,0 +1,87 @@
+{
+  "slot": "09:45",
+  "generated_at": "2026-11-18T14:45:00+00:00",
+  "trading_day": true,
+  "entries_allowed": true,
+  "records": [
+    {
+      "sleeve": "core",
+      "created_at": "2026-11-18T14:45:00+00:00",
+      "ticket_id": "P-20261118-0945-SPY-01",
+      "symbol": "US.SPY",
+      "side": "BUY",
+      "quantity": 3,
+      "order_type": "LIMIT",
+      "limit_price": 732.44,
+      "est_cost": 2197.32,
+      "proposal_hash": "b1c9f0d4e8a24d9f7b6c3a1e5d8f2b4c7a9e0d1f3b5c7a9e2d4f6b8c0a1e3d5f",
+      "rationale": "CORE_TRANCHE_2: last 732.44, sma20 735.12, sma50 729.88, roc20 -0.41%",
+      "evidence": [
+        {"id": "Q-P-20261118-0945-SPY-01", "kind": "quote", "as_of": "2026-11-18T14:45:00+00:00", "source": "moomoo.quote_cur_kline"},
+        {"id": "N-a91f2c", "kind": "news", "as_of": "2026-11-18T11:40:00+00:00", "source": "moomoo.news_search"}
+      ],
+      "gate": {"checked": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"], "codes": ["R11_NO_APPROVAL"], "passed": false},
+      "status": "AWAITING_APPROVAL"
+    },
+    {
+      "sleeve": "satellite",
+      "created_at": "2026-11-18T14:45:00+00:00",
+      "ticket_id": "P-20261118-0945-NVDA-02",
+      "symbol": "US.NVDA",
+      "side": "SELL",
+      "quantity": 20,
+      "order_type": "LIMIT",
+      "limit_price": 181.2,
+      "est_cost": 3624.0,
+      "proposal_hash": "c3d5e7f9a1b3c5d7e9f1a3b5c7d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5",
+      "rationale": "EXIT_50DMA_BREAK: last 181.20 below sma50 191.40, roc20 -6.12%",
+      "evidence": [
+        {"id": "Q-P-20261118-0945-NVDA-02", "kind": "quote", "as_of": "2026-11-18T14:45:00+00:00", "source": "moomoo.quote_cur_kline"}
+      ],
+      "gate": {"checked": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"], "codes": ["R11_NO_APPROVAL"], "passed": false},
+      "status": "AWAITING_APPROVAL"
+    },
+    {
+      "sleeve": "core",
+      "created_at": "2026-11-18T14:45:00+00:00",
+      "ticket_id": "P-20261118-0945-IWM-03",
+      "symbol": "US.IWM",
+      "side": "BUY",
+      "quantity": 4,
+      "order_type": "LIMIT",
+      "limit_price": 241.95,
+      "est_cost": 967.8,
+      "proposal_hash": "d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e6",
+      "rationale": "CORE_ENTRY: last 241.95, sma20 237.83, sma50 232.45, roc20 +3.48%",
+      "evidence": [
+        {"id": "Q-P-20261118-0945-IWM-03", "kind": "quote", "as_of": "2026-11-18T14:45:00+00:00", "source": "moomoo.quote_cur_kline"},
+        {"id": "N-old-7731", "kind": "news", "as_of": "2026-11-16T11:02:00+00:00", "source": "moomoo.news_search"}
+      ],
+      "gate": {"checked": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"], "codes": ["R10_EVIDENCE_STALE"], "passed": false},
+      "status": "REJECTED"
+    },
+    {
+      "sleeve": "satellite",
+      "created_at": "2026-11-18T14:45:00+00:00",
+      "ticket_id": "P-20261118-0945-MSFT-04",
+      "symbol": "US.MSFT",
+      "side": "BUY",
+      "quantity": 6,
+      "order_type": "LIMIT",
+      "limit_price": 502.18,
+      "est_cost": 3013.08,
+      "proposal_hash": "e5f7a9b1c3d5e7f9a1b3c5d7e9f1a3b5c7d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7",
+      "rationale": "SATELLITE_ENTRY: within 1.03% of 20d high, roc20 +2.92%",
+      "evidence": [
+        {"id": "Q-P-20261118-0945-MSFT-04", "kind": "quote", "as_of": "2026-11-18T14:45:00+00:00", "source": "moomoo.quote_cur_kline"},
+        {"id": "N-b47d10", "kind": "news", "as_of": "2026-11-18T12:05:00+00:00", "source": "moomoo.news_search"}
+      ],
+      "gate": {"checked": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"], "codes": ["R11_NO_APPROVAL"], "passed": false},
+      "status": "AWAITING_APPROVAL"
+    }
+  ],
+  "skipped": [
+    {"symbol": "US.TSLA", "reason": "INSUFFICIENT_HISTORY"},
+    {"symbol": "US.AMD", "reason": "WORKING_ORDER"}
+  ]
+}

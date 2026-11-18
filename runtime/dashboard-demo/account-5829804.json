@@ -1,0 +1,13 @@
+{
+  "account_id": "5829804",
+  "cash": 82875.88,
+  "equity": 102150.0,
+  "day_open_equity": 101900.0,
+  "executed_orders_today": 2,
+  "positions": {
+    "US.SPY": {"quantity": 13, "market_value": 9521.72, "average_cost": 735.2},
+    "US.QQQ": {"quantity": 10, "market_value": 6128.4, "average_cost": 601.1},
+    "US.NVDA": {"quantity": 20, "market_value": 3624.0, "average_cost": 178.35}
+  },
+  "working_orders": [{"symbol": "US.AMD", "side": "BUY"}]
+}

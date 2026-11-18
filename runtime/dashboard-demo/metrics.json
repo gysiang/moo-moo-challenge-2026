@@ -1,0 +1,13 @@
+{
+  "as_of": "2026-11-18T14:45:00+00:00",
+  "symbols": {
+    "US.AAPL": {"instrument_type": "stock", "last_price": 353.76, "market_cap": 3500000000000.0, "sma20": 347.4475, "sma50": 339.1638, "high20": 355.18, "roc20": 0.03656821, "trend_up": true},
+    "US.AMD": {"instrument_type": "stock", "last_price": 221.4, "market_cap": 358000000000.0, "sma20": 214.82, "sma50": 205.11, "high20": 224.6, "roc20": 0.0481, "trend_up": true},
+    "US.IWM": {"instrument_type": "etf", "last_price": 241.95, "market_cap": 68000000000.0, "sma20": 237.834, "sma50": 232.4524, "high20": 242.92, "roc20": 0.03477034, "trend_up": true},
+    "US.MSFT": {"instrument_type": "stock", "last_price": 502.18, "market_cap": 3730000000000.0, "sma20": 494.3, "sma50": 481.9, "high20": 507.4, "roc20": 0.0292, "trend_up": true},
+    "US.NVDA": {"instrument_type": "stock", "last_price": 181.2, "market_cap": 4410000000000.0, "sma20": 185.9, "sma50": 191.4, "high20": 199.8, "roc20": -0.0612, "trend_up": false},
+    "US.QQQ": {"instrument_type": "etf", "last_price": 612.84, "market_cap": 372000000000.0, "sma20": 602.87, "sma50": 589.93, "high20": 619.4, "roc20": 0.0331, "trend_up": true},
+    "US.SPY": {"instrument_type": "etf", "last_price": 732.44, "market_cap": 688000000000.0, "sma20": 735.12, "sma50": 729.88, "high20": 739.76, "roc20": -0.0041, "trend_up": true},
+    "US.TSLA": {"instrument_type": "stock", "last_price": 428.9, "market_cap": 1380000000000.0, "sma20": 415.2, "sma50": 402.7, "high20": 436.1, "roc20": 0.0512, "trend_up": true}
+  }
+}
