@@ -10,6 +10,7 @@ from scout.account import parse_time, save_approval
 
 AWAITING = "AWAITING_APPROVAL"
 READY = "READY"
+REJECTED_BY_OPERATOR = "REJECTED_BY_OPERATOR"
 
 TERMINAL_EVENTS = {
     "ORDER_REJECTED",
@@ -59,6 +60,30 @@ def load_limits(config_path: Path) -> dict[str, Any]:
 def load_approvals(path: Path) -> dict[str, dict]:
     payload = read_json(path) or {}
     return {k: v for k, v in payload.items() if isinstance(v, dict)}
+
+
+def load_rejections(path: Path) -> dict[str, dict]:
+    latest: dict[str, dict] = {}
+    for row in read_jsonl(path):
+        ticket = row.get("ticket_id")
+        if isinstance(ticket, str):
+            latest[ticket] = row
+    return latest
+
+
+def load_triggers(path: Path) -> dict[str, dict]:
+    latest: dict[str, dict] = {}
+    for row in read_jsonl(path):
+        ticket = row.get("ticket_id")
+        if isinstance(ticket, str):
+            latest[ticket] = row
+    return latest
+
+
+def append_jsonl(path: Path, row: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
 def list_cycles(runtime: Path) -> list[dict]:
@@ -219,7 +244,15 @@ def _last_event(events: list[dict], order_id: str) -> str:
     return label
 
 
-def decision_rows(cycles: list[dict], approvals: dict[str, dict], now: datetime) -> list[dict]:
+def decision_rows(
+    cycles: list[dict],
+    approvals: dict[str, dict],
+    now: datetime,
+    rejections: Optional[dict[str, dict]] = None,
+    triggers: Optional[dict[str, dict]] = None,
+) -> list[dict]:
+    rejections = rejections or {}
+    triggers = triggers or {}
     rows = []
     for cycle in cycles:
         payload = cycle["payload"]
@@ -227,12 +260,16 @@ def decision_rows(cycles: list[dict], approvals: dict[str, dict], now: datetime)
             ticket = record.get("ticket_id")
             status = record.get("status")
             state = approval_state(ticket, approvals, now)
-            if state["state"] == "APPROVED" and status == AWAITING:
+            rejection = rejections.get(ticket)
+            if rejection is not None and status == AWAITING:
+                effective = REJECTED_BY_OPERATOR
+            elif state["state"] == "APPROVED" and status == AWAITING:
                 effective = "APPROVED"
             elif state["state"] == "EXPIRED" and status == AWAITING:
                 effective = "APPROVAL_EXPIRED"
             else:
                 effective = status
+            trigger = triggers.get(ticket)
             rows.append(
                 {
                     "cycle": cycle["file"],
@@ -251,6 +288,15 @@ def decision_rows(cycles: list[dict], approvals: dict[str, dict], now: datetime)
                     "rationale": record.get("rationale"),
                     "evidence": record.get("evidence", []),
                     "approval_expires_at": state["expires_at"],
+                    "rejected_at": rejection.get("rejected_at") if rejection else None,
+                    "rejection_reason": rejection.get("reason") if rejection else None,
+                    "guard_state": trigger.get("state") if trigger else None,
+                    "guard_triggered_at": (
+                        trigger.get("requested_at")
+                        if trigger and trigger.get("state") == "accepted"
+                        else None
+                    ),
+                    "guard_session_id": trigger.get("session_id") if trigger else None,
                 }
             )
     rows.sort(key=lambda r: (r.get("generated_at") or "", r.get("ticket_id") or ""), reverse=True)
@@ -267,11 +313,15 @@ def build_state(
     approvals_file: str = "approvals.json",
     events_file: str = "guard-events.jsonl",
     history_file: str = "equity-history.jsonl",
+    rejections_file: str = "rejections.jsonl",
+    triggers_file: str = "guard-triggers.jsonl",
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     account = read_json(runtime / "account-5829804.json") or {}
     metrics = read_json(runtime / "metrics.json") or {}
     approvals = load_approvals(runtime / approvals_file)
+    rejections = load_rejections(runtime / rejections_file)
+    triggers = load_triggers(runtime / triggers_file)
     cycles = list_cycles(runtime)
     events = read_jsonl(runtime / events_file)
     limits = load_limits(config_path)
@@ -282,7 +332,7 @@ def build_state(
     positions = position_rows(account, metrics, baseline)
     series = equity_series(runtime / history_file, account or None, now)
     dd = drawdown_stats(series, equity)
-    decisions = decision_rows(cycles, approvals, now)
+    decisions = decision_rows(cycles, approvals, now, rejections, triggers)
 
     return {
         "demo": demo,
@@ -315,6 +365,9 @@ def build_state(
             "awaiting": sum(1 for d in decisions if d["status"] == AWAITING),
             "approved": sum(1 for d in decisions if d["status"] == "APPROVED"),
             "rejected": sum(1 for d in decisions if d["status"] == "REJECTED"),
+            "operator_rejected": sum(
+                1 for d in decisions if d["status"] == REJECTED_BY_OPERATOR
+            ),
             "ready": sum(1 for d in decisions if d["status"] == READY),
         },
         "guard": {
@@ -334,6 +387,7 @@ def approve_ticket(
     ttl_minutes: int,
     now: Optional[datetime] = None,
     approvals_file: str = "approvals.json",
+    rejections_file: str = "rejections.jsonl",
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     path = Path(cycle_file).name
@@ -353,6 +407,8 @@ def approve_ticket(
         }
     if not record.get("proposal_hash"):
         return {"ok": False, "error": "cycle record has no proposal_hash; re-run the cycle"}
+    if ticket_id in load_rejections(runtime / rejections_file):
+        return {"ok": False, "error": f"ticket {ticket_id} was rejected in the dashboard"}
 
     approval = Approval(
         ticket_id=ticket_id,
@@ -366,4 +422,62 @@ def approve_ticket(
         "ticket_id": ticket_id,
         "approved_at": iso(approval.approved_at),
         "expires_at": iso(approval.expires_at),
+    }
+
+
+def reject_ticket(
+    *,
+    runtime: Path,
+    cycle_file: str,
+    ticket_id: str,
+    reason: str = "",
+    now: Optional[datetime] = None,
+    approvals_file: str = "approvals.json",
+    rejections_file: str = "rejections.jsonl",
+) -> dict:
+    now = now or datetime.now(timezone.utc)
+    path = Path(cycle_file).name
+    cycles = {c["file"]: c["payload"] for c in list_cycles(runtime)}
+    payload = cycles.get(path)
+    if payload is None:
+        return {"ok": False, "error": f"cycle {path} not found in {runtime}"}
+    record = next(
+        (r for r in payload.get("records", []) if r.get("ticket_id") == ticket_id), None
+    )
+    if record is None:
+        return {"ok": False, "error": f"ticket {ticket_id} not in {path}"}
+    if record.get("status") != AWAITING:
+        return {
+            "ok": False,
+            "error": f"ticket {ticket_id} has status {record.get('status')}; only AWAITING_APPROVAL can be rejected",
+        }
+    if ticket_id in load_rejections(runtime / rejections_file):
+        return {"ok": True, "ticket_id": ticket_id, "already_rejected": True}
+    approval = approval_state(ticket_id, load_approvals(runtime / approvals_file), now)
+    if approval["approved"]:
+        return {
+            "ok": False,
+            "error": f"ticket {ticket_id} has a live approval until {approval['expires_at']}; it can no longer be rejected",
+        }
+
+    row = {
+        "ticket_id": ticket_id,
+        "cycle_file": path,
+        "proposal_hash": record.get("proposal_hash"),
+        "symbol": record.get("symbol"),
+        "side": record.get("side"),
+        "quantity": record.get("quantity"),
+        "limit_price": record.get("limit_price"),
+        "est_cost": record.get("est_cost"),
+        "gate_codes": (record.get("gate") or {}).get("codes", []),
+        "rejected_at": iso(now),
+        "actor": "dashboard-operator",
+        "reason": (reason or "").strip()[:200] or "operator rejected in dashboard",
+    }
+    append_jsonl(runtime / rejections_file, row)
+    return {
+        "ok": True,
+        "ticket_id": ticket_id,
+        "rejected_at": row["rejected_at"],
+        "reason": row["reason"],
     }

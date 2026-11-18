@@ -9,6 +9,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from dashboard import cloud as cloud_api
+from dashboard import guard as guard_link
 from dashboard import state
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -25,18 +26,22 @@ class App:
         baseline: float,
         demo: bool,
         cloud: Optional[cloud_api.CloudClient] = None,
+        guard: Optional[guard_link.GuardLink] = None,
     ) -> None:
         self.runtime = Path(runtime)
         self.config_path = Path(config_path)
         self.baseline = float(baseline)
         self.demo = demo
         self.cloud = cloud
+        self.guard = guard
         self.approvals_file = "approvals-demo.json" if demo else "approvals.json"
         self.events_file = "guard-events-demo.jsonl" if demo else "guard-events.jsonl"
         self.history_file = "equity-history-demo.jsonl" if demo else "equity-history.jsonl"
+        self.rejections_file = "rejections-demo.jsonl" if demo else "rejections.jsonl"
+        self.triggers_file = "guard-triggers-demo.jsonl" if demo else "guard-triggers.jsonl"
 
     def state(self) -> dict:
-        return state.build_state(
+        payload = state.build_state(
             runtime=self.runtime,
             config_path=self.config_path,
             baseline=self.baseline,
@@ -44,7 +49,14 @@ class App:
             approvals_file=self.approvals_file,
             events_file=self.events_file,
             history_file=self.history_file,
+            rejections_file=self.rejections_file,
+            triggers_file=self.triggers_file,
         )
+        payload["guard_link"] = {
+            "configured": self.guard is not None,
+            "session_id": self.guard.session_id if self.guard else None,
+        }
+        return payload
 
     def approve(self, payload: dict[str, Any]) -> tuple[int, dict]:
         ticket_id = payload.get("ticket_id")
@@ -64,8 +76,78 @@ class App:
             ticket_id=ticket_id,
             ttl_minutes=ttl_minutes,
             approvals_file=self.approvals_file,
+            rejections_file=self.rejections_file,
+        )
+        if not result.get("ok"):
+            return HTTPStatus.CONFLICT, result
+        result["guard"] = self.trigger_guard(cycle_file, ticket_id)
+        return HTTPStatus.OK, result
+
+    def reject(self, payload: dict[str, Any]) -> tuple[int, dict]:
+        ticket_id = payload.get("ticket_id")
+        cycle_file = payload.get("cycle_file")
+        if not isinstance(ticket_id, str) or not isinstance(cycle_file, str):
+            return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "ticket_id and cycle_file are required"}
+        reason = payload.get("reason")
+        if reason is not None and not isinstance(reason, str):
+            return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "reason must be text"}
+        result = state.reject_ticket(
+            runtime=self.runtime,
+            cycle_file=cycle_file,
+            ticket_id=ticket_id,
+            reason=reason or "",
+            approvals_file=self.approvals_file,
+            rejections_file=self.rejections_file,
         )
         return (HTTPStatus.OK if result.get("ok") else HTTPStatus.CONFLICT), result
+
+    def trigger_guard(self, cycle_file: str, ticket_id: str) -> dict:
+        if self.demo:
+            return {
+                "configured": False,
+                "triggered": False,
+                "error": "demo fixtures never start the Guard; approvals here are synthetic",
+            }
+        if self.guard is None:
+            return {"configured": False, "triggered": False, "error": "guard session not configured"}
+        previous = state.load_triggers(self.runtime / self.triggers_file).get(ticket_id)
+        if previous and previous.get("state") != "rejected":
+            return {
+                "configured": True,
+                "triggered": False,
+                "session_id": previous.get("session_id"),
+                "error": f"a trigger for {ticket_id} already exists ({previous.get('state')}, {previous.get('requested_at')}); "
+                "check the Guard session instead of sending another",
+            }
+        try:
+            envelope = guard_link.build_envelope(
+                runtime=self.runtime,
+                cycle_file=cycle_file,
+                ticket_id=ticket_id,
+                approvals_file=self.approvals_file,
+            )
+        except guard_link.GuardLinkError as err:
+            return {"configured": True, "triggered": False, "error": str(err)}
+        base = {
+            "ticket_id": ticket_id,
+            "cycle_file": Path(cycle_file).name,
+            "proposal_hash": envelope["evidence"]["approvals"][ticket_id]["proposal_hash"],
+            "session_id": self.guard.session_id,
+            "requested_at": envelope["requested_at"],
+        }
+        state.append_jsonl(self.runtime / self.triggers_file, {**base, "state": "sending"})
+        outcome = self.guard.trigger(envelope)
+        if outcome.get("triggered"):
+            state.append_jsonl(self.runtime / self.triggers_file, {**base, "state": "accepted"})
+            return {"configured": True, **outcome}
+        # An HTTP response means the send was refused; no timeout means it may have landed.
+        status = outcome.get("status", 0)
+        final = "rejected" if status else "unknown"
+        state.append_jsonl(
+            self.runtime / self.triggers_file,
+            {**base, "state": final, "error": outcome.get("error")},
+        )
+        return {"configured": True, **outcome, "state": final}
 
     def cloud_sessions(self, limit: int) -> dict:
         if self.cloud is None:
@@ -178,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.FORBIDDEN, {"error": "loopback only"})
             return
         route = urlparse(self.path).path
-        if route != "/api/approve":
+        if route not in ("/api/approve", "/api/reject"):
             self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
         if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
@@ -199,7 +281,10 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             self._json(HTTPStatus.BAD_REQUEST, {"error": "json object required"})
             return
-        status, result = self.app.approve(payload)
+        if route == "/api/reject":
+            status, result = self.app.reject(payload)
+        else:
+            status, result = self.app.approve(payload)
         self._json(status, result)
 
 
@@ -210,10 +295,18 @@ def serve(
     baseline: float,
     demo: bool,
     cloud: Optional[cloud_api.CloudClient] = None,
+    guard: Optional[guard_link.GuardLink] = None,
     host: str = "127.0.0.1",
     port: int = 8765,
 ) -> ThreadingHTTPServer:
-    app = App(runtime=runtime, config_path=config_path, baseline=baseline, demo=demo, cloud=cloud)
+    app = App(
+        runtime=runtime,
+        config_path=config_path,
+        baseline=baseline,
+        demo=demo,
+        cloud=cloud,
+        guard=guard,
+    )
     handler = type("BoundHandler", (Handler,), {"app": app})
     httpd = ThreadingHTTPServer((host, port), handler)
     return httpd

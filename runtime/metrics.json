@@ -1,0 +1,195 @@
+{
+  "as_of": "2026-11-18T14:48:23+00:00",
+  "note": "rebuilt from the scout-0945 session transcript (sess_00vvl92d2jgg06lp23uy); high20 not recorded",
+  "symbols": {
+    "US.AAPL": {
+      "instrument_type": "stock",
+      "last_price": 354.83,
+      "market_cap": 5164301517340.0,
+      "roc20": 0.0315,
+      "sma20": 347.8,
+      "sma50": 341.2,
+      "trend_up": true
+    },
+    "US.AMZN": {
+      "instrument_type": "stock",
+      "last_price": 262.13,
+      "market_cap": 2830338951595.5,
+      "roc20": -0.0009,
+      "sma20": 256.85,
+      "sma50": 255.01,
+      "trend_up": true
+    },
+    "US.AVGO": {
+      "instrument_type": "stock",
+      "last_price": 341.83,
+      "market_cap": 1630624225585.35,
+      "roc20": 0.011899999999999999,
+      "sma20": 331.46,
+      "sma50": 343.9,
+      "trend_up": false
+    },
+    "US.COST": {
+      "instrument_type": "stock",
+      "last_price": 1101.69,
+      "market_cap": 489440797263.99,
+      "roc20": 0.1036,
+      "sma20": 1048.96,
+      "sma50": 979.06,
+      "trend_up": true
+    },
+    "US.GOOGL": {
+      "instrument_type": "stock",
+      "last_price": 281.9,
+      "market_cap": 3465309780000.0,
+      "roc20": -0.15789999999999998,
+      "sma20": 294.75,
+      "sma50": 324.95,
+      "trend_up": false
+    },
+    "US.HD": {
+      "instrument_type": "stock",
+      "last_price": 335.4,
+      "market_cap": 336151565688.18,
+      "roc20": 0.0677,
+      "sma20": 337.97,
+      "sma50": 313.69,
+      "trend_up": true
+    },
+    "US.IWM": {
+      "instrument_type": "etf",
+      "last_price": 269.87,
+      "market_cap": 74451310000.0,
+      "roc20": -0.0239,
+      "sma20": 277.79,
+      "sma50": 279.37,
+      "trend_up": false
+    },
+    "US.JNJ": {
+      "instrument_type": "stock",
+      "last_price": 276.37,
+      "market_cap": 670339616670.36,
+      "roc20": 0.0721,
+      "sma20": 274.88,
+      "sma50": 267.39,
+      "trend_up": true
+    },
+    "US.JPM": {
+      "instrument_type": "stock",
+      "last_price": 328.94,
+      "market_cap": 875846572163.29,
+      "roc20": -0.0187,
+      "sma20": 338.7,
+      "sma50": 339.03,
+      "trend_up": false
+    },
+    "US.LLY": {
+      "instrument_type": "stock",
+      "last_price": 1409.85,
+      "market_cap": 1337013178918.068,
+      "roc20": 0.10949999999999999,
+      "sma20": 1379.36,
+      "sma50": 1258.27,
+      "trend_up": true
+    },
+    "US.META": {
+      "instrument_type": "stock",
+      "last_price": 615.41,
+      "market_cap": 1575897170061.97,
+      "roc20": -0.1177,
+      "sma20": 625.24,
+      "sma50": 679.34,
+      "trend_up": false
+    },
+    "US.MSFT": {
+      "instrument_type": "stock",
+      "last_price": 502.6,
+      "market_cap": 3734410454364.24,
+      "roc20": -0.056900000000000006,
+      "sma20": 525.81,
+      "sma50": 519.83,
+      "trend_up": false
+    },
+    "US.NVDA": {
+      "instrument_type": "stock",
+      "last_price": 154.23,
+      "market_cap": 3714918600000.0,
+      "roc20": -0.30519999999999997,
+      "sma20": 189.2,
+      "sma50": 210.37,
+      "trend_up": false
+    },
+    "US.PG": {
+      "instrument_type": "stock",
+      "last_price": 170.88,
+      "market_cap": 397476631193.07,
+      "roc20": 0.0895,
+      "sma20": 165.49,
+      "sma50": 155.88,
+      "trend_up": true
+    },
+    "US.QQQ": {
+      "instrument_type": "etf",
+      "last_price": 654.78,
+      "market_cap": 458235455000.0,
+      "roc20": -0.0971,
+      "sma20": 686.06,
+      "sma50": 714.26,
+      "trend_up": false
+    },
+    "US.SPY": {
+      "instrument_type": "etf",
+      "last_price": 730.49,
+      "market_cap": 775459826059.16,
+      "roc20": -0.055099999999999996,
+      "sma20": 753.73,
+      "sma50": 762.51,
+      "trend_up": false
+    },
+    "US.TSLA": {
+      "instrument_type": "stock",
+      "last_price": 381.98,
+      "market_cap": 1507720227132.51,
+      "roc20": -0.0116,
+      "sma20": 386.04,
+      "sma50": 375.78,
+      "trend_up": true
+    },
+    "US.UNH": {
+      "instrument_type": "stock",
+      "last_price": 376.75,
+      "market_cap": 339879296804.52,
+      "roc20": -0.0965,
+      "sma20": 404.5,
+      "sma50": 391.18,
+      "trend_up": false
+    },
+    "US.V": {
+      "instrument_type": "stock",
+      "last_price": 415.96,
+      "market_cap": 771758883207.92,
+      "roc20": 0.0199,
+      "sma20": 417.84,
+      "sma50": 393.32,
+      "trend_up": true
+    },
+    "US.WMT": {
+      "instrument_type": "stock",
+      "last_price": 125.47,
+      "market_cap": 997549583612.135,
+      "roc20": 0.06509999999999999,
+      "sma20": 124.58,
+      "sma50": 115.79,
+      "trend_up": true
+    },
+    "US.XOM": {
+      "instrument_type": "stock",
+      "last_price": 162.71,
+      "market_cap": 664097413883.2,
+      "roc20": -0.0864,
+      "sma20": 173.45,
+      "sma50": 169.63,
+      "trend_up": false
+    }
+  }
+}

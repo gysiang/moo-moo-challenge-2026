@@ -241,6 +241,8 @@ against a local `scout plan` on the same raw file: identical ticket ids and gate
    python -m scout approve --cycle runtime/cycle-0945.json --ticket P-... \
        --approvals runtime/approvals.json
    ```
+   The dashboard's **Approve** button does this and then triggers the Guard run for you —
+   see §4.1.
 4. **Guard run** (manual, never cron):
    ```
    python -m guard.bridge_cli prepare --cycle runtime/cycle-0945.json --ticket P-... \
@@ -264,7 +266,7 @@ against a local `scout plan` on the same raw file: identical ticket ids and gate
 Never edit `order-plan.json`. A changed size or limit invalidates the approval hash and
 the gate will reject it at step 4 with `R11_NO_APPROVAL`. That is the contract working.
 
-### 4.1 Operator dashboard (local, read-only + approvals)
+### 4.1 Operator dashboard (local approvals + Guard trigger)
 
 ```
 python -m dashboard --runtime runtime/demo --port 8765   # paper artefacts the pipeline wrote
@@ -274,13 +276,33 @@ python -m dashboard --runtime runtime/demo --no-cloud --port 8765   # skip Cloud
 
 Serves `http://127.0.0.1:8765` (loopback only; non-loopback Host/Origin is refused). It
 reads `account-5829804.json`, `metrics.json`, `cycle-*.json`, `approvals.json`,
-`guard-events.jsonl` and `equity-history.jsonl` from `--runtime` (default `runtime/`), and
-appends the current equity point on each load when it has moved. If the directory has no
-`account-5829804.json`, the KPI row says so instead of rendering a fake −100%. **Approve**
-on an `AWAITING_APPROVAL` row writes the same hash-bound record as step 3 (cycle
-`proposal_hash`, 30 min TTL) and the row flips to `APPROVED`. The dashboard never imports
-the broker and never submits: steps 4–7 stay manual. Demo mode reads and writes only the
-`*-demo` files, so the fixtures are never mutated. Poll interval is 30 s.
+`rejections.jsonl`, `guard-triggers.jsonl`, `guard-events.jsonl` and `equity-history.jsonl`
+from `--runtime` (default `runtime/`), and appends the current equity point on each load
+when it has moved. If the directory has no `account-5829804.json`, the KPI row says so
+instead of rendering a fake −100%. Demo mode reads and writes only the `*-demo` files, so
+the fixtures are never mutated. Poll interval is 30 s.
+
+**Approve → Guard.** **Approve** on an `AWAITING_APPROVAL` row writes the same hash-bound
+record as step 3 (cycle `proposal_hash`, 30 min TTL), flips the row to `APPROVED`, then
+posts a Guard trigger to the persistent Forward Guard session
+(`QODER_GUARD_SESSION_ID` in `.env`, or `--guard-session`; `--no-guard` disables it). The
+trigger message carries a `guard-trigger` envelope: the cycle record, the account
+snapshot, `metrics.json` and the approval record, all inline — the cloud sandbox has no
+copy of `runtime/`. The Guard re-runs `guard.bridge_cli prepare` on that evidence and only
+submits if the gate is READY; steps 6–7 still run by hand. A click is the per-ticket human
+authorization, so `sim_trade_input_order` is `always_allow` while cancel stays
+`always_ask` and every modify/unlock path stays `always_deny` (see
+[`guard-agent.md`](guard-agent.md)). Each attempt is appended to
+`runtime/guard-triggers.jsonl` with a `sending` line before the POST, then `accepted`, or
+`rejected`/`unknown`. Only an HTTP refusal may be retried ("Run Guard" reappears); an
+`unknown` outcome stays blocked until the Guard session is checked by hand. Demo mode never
+triggers the Guard.
+
+**Reject → log.** **Reject** appends `{ticket_id, cycle_file, proposal_hash, symbol, side,
+quantity, limit_price, est_cost, gate_codes, rejected_at, actor, reason}` to
+`runtime/rejections.jsonl`, flips the row to `REJECTED_BY_OPERATOR` and blocks a later
+approval of the same ticket (`reject_ticket` also refuses when a live approval already
+exists, so the order of approve/reject is never ambiguous). Repeat clicks are idempotent.
 
 **Cloud agents card.** The bottom card lists recent Cloud Agents sessions (Scout cron runs
 included) and expands to each session's public event log. Reads go through the dashboard

@@ -42,10 +42,12 @@ Account snapshot — never guess:
 `executed_orders_today` from today's order list, positions from `sim_trade_position_list`.
 Write it to `runtime/account-5829804.json`. A failed call aborts the cycle.
 
-Klines → metrics:
+Klines → metrics (scripts only — raw candles never go into the conversation):
 
-1. For each watchlist symbol, `quote_cur_kline` with daily bars, last 60 sessions.
-2. Write `runtime/mcp-klines.json`:
+1. For each watchlist symbol, `quote_cur_kline` with daily bars, last 60 sessions, saved
+   straight to `/tmp/kl/<SYMBOL>.json`. Never `Read` a kline file back.
+2. `quote_market_snapshot` once for the watchlist; `total_market_val` is the market cap.
+3. Merge `/tmp/kl/*.json` plus the caps into `runtime/mcp-klines.json`:
    ```json
    {"as_of": "<UTC ISO>",
     "symbols": {"US.AAPL": {"instrument_type": "stock", "market_cap": 3520000000000,
@@ -53,21 +55,23 @@ Klines → metrics:
    ```
    Keep the raw candle objects; `scout.ingest` maps `close`/`close_price`/`last_price`
    and `high`/`high_price`, sorts by `time_key`/`time`/`date`, and rejects a symbol with
-   fewer than 50 closes or 20 highs.
-3. `python -m scout.ingest --in runtime/mcp-klines.json --out runtime/market-raw.json`
-4. `python -m scout snapshot --raw runtime/market-raw.json --out runtime/metrics.json`
+   fewer than 50 closes or 20 highs. The merge script prints only `symbols N omitted [...]`.
+4. `python -m scout.ingest --in runtime/mcp-klines.json --out runtime/market-raw.json`
+5. `python -m scout snapshot --raw runtime/market-raw.json --out runtime/metrics.json`
 
 News (BUY evidence only):
 
 ```bash
-# call news_search for every symbol whose metrics line shows trend_up=True
-# runtime/news.json:
-# {"US.AAPL": [{"id": "N-a41f", "as_of": "2026-11-18T13:05:00Z",
-#               "source": "moomoo.news_search", "title": "..."}]}
+# one news_search per trend_up symbol, plain ASCII keyword "Company Ticker"
+# (never HTML-escape &, never repeat the query in another language)
+# save every reply as received in runtime/mcp-news.json: {"US.AAPL": <reply>, ...}
+python -m scout.news --in runtime/mcp-news.json --out runtime/news.json
 ```
 
-Use the article's real publication time. Missing or stale news is a legitimate
-`R10_EVIDENCE_STALE` rejection — it is how "missing evidence ⇒ HOLD" is enforced.
+`scout.news` rewrites epoch milliseconds/seconds to UTC ISO, prefixes ids with `N-`,
+sorts newest first, keeps three per symbol and drops items older than 24h or stamped in
+the future. Those are exactly the items the gate would reject, so never hand-write or
+edit `runtime/news.json`. A `kept 0` line is a HOLD, not something to work around.
 
 Plan:
 
@@ -94,9 +98,13 @@ ids, which is what makes retries idempotent.
 
 - No order tools. No approval commands. No edits to `config.json`, `watchlist.json`,
   `gate/`, or tests.
+- Read-only `sim_trade_*` calls only: `sim_trade_cash_info`, `sim_trade_position_list`,
+  `sim_trade_history_order_list`, `sim_trade_account_list`.
 - 15:30 ET is exits-only; the planner blocks entries and the report says so.
 - Omit symbols with insufficient history and list them at the end; never pad a series.
 - Write `runtime/cycle-<HHMM>-rerun.json` rather than overwriting an earlier cycle file.
+- Keep tool output short: no raw JSON, candle arrays or article bodies in the transcript,
+  and never read back a file you just wrote.
 
 ## Done when
 

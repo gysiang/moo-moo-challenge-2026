@@ -1,0 +1,372 @@
+{
+  "entries_allowed": true,
+  "generated_at": "2026-11-18T14:49:53+00:00",
+  "records": [
+    {
+      "created_at": "2026-11-18T14:49:53+00:00",
+      "est_cost": 2819.7,
+      "evidence": [
+        {
+          "as_of": "2026-11-18T14:48:23+00:00",
+          "id": "Q-P-20261118-0945-LLY-01",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-17T15:31:00+00:00",
+          "id": "N-1004780017",
+          "kind": "news",
+          "source": "\u5bcc\u9014\u8d44\u8baf"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 1409.85,
+      "order_type": "LIMIT",
+      "proposal_hash": "4dbecf01d72056cfd0843c8b5dfc30ef52e0436c56c6e8dcb2cd67142e4a42a7",
+      "quantity": 2,
+      "rationale": "SATELLITE_ENTRY: last 1409.85, sma20 1379.36, sma50 1258.27, roc20 +10.95%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "AWAITING_APPROVAL",
+      "symbol": "US.LLY",
+      "ticket_id": "P-20261118-0945-LLY-01"
+    },
+    {
+      "created_at": "2026-11-18T14:49:53+00:00",
+      "est_cost": 3305.07,
+      "evidence": [
+        {
+          "as_of": "2026-11-18T14:48:23+00:00",
+          "id": "Q-P-20261118-0945-COST-02",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R10_EVIDENCE_STALE",
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 1101.69,
+      "order_type": "LIMIT",
+      "proposal_hash": "92413ff50a02906ffe3b7cf05ce7c1f2429491b729ba139291591343f83ad9a5",
+      "quantity": 3,
+      "rationale": "SATELLITE_ENTRY: last 1101.69, sma20 1048.96, sma50 979.06, roc20 +10.36%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "REJECTED",
+      "symbol": "US.COST",
+      "ticket_id": "P-20261118-0945-COST-02"
+    },
+    {
+      "created_at": "2026-11-18T14:49:53+00:00",
+      "est_cost": 3417.6,
+      "evidence": [
+        {
+          "as_of": "2026-11-18T14:48:23+00:00",
+          "id": "Q-P-20261118-0945-PG-03",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-18T14:43:00+00:00",
+          "id": "N-1004918578",
+          "kind": "news",
+          "source": "\u9053\u743c\u65af"
+        },
+        {
+          "as_of": "2026-11-18T11:32:00+00:00",
+          "id": "N-1004899462",
+          "kind": "news",
+          "source": "\u5bcc\u9014\u8d44\u8baf"
+        },
+        {
+          "as_of": "2026-11-18T10:35:00+00:00",
+          "id": "N-1004893295",
+          "kind": "news",
+          "source": "MT Newswires"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 170.88,
+      "order_type": "LIMIT",
+      "proposal_hash": "5843c2ceebf151fb11f3797720e100fce0e006fa7775c7a018be72a4ba00747c",
+      "quantity": 20,
+      "rationale": "SATELLITE_ENTRY: last 170.88, sma20 165.49, sma50 155.88, roc20 +8.95%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "AWAITING_APPROVAL",
+      "symbol": "US.PG",
+      "ticket_id": "P-20261118-0945-PG-03"
+    },
+    {
+      "created_at": "2026-11-18T14:49:53+00:00",
+      "est_cost": 3316.44,
+      "evidence": [
+        {
+          "as_of": "2026-11-18T14:48:23+00:00",
+          "id": "Q-P-20261118-0945-JNJ-04",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-18T02:31:00+00:00",
+          "id": "N-1004834619",
+          "kind": "news",
+          "source": "\u5bcc\u9014\u8d44\u8baf"
+        },
+        {
+          "as_of": "2026-11-17T16:35:14+00:00",
+          "id": "N-1004785601",
+          "kind": "news",
+          "source": "MT Newswires"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 276.37,
+      "order_type": "LIMIT",
+      "proposal_hash": "69c3abc576dd83ac540ea2c141e7831df7b1659117ad26aecef7dfc8142b3ef7",
+      "quantity": 12,
+      "rationale": "SATELLITE_ENTRY: last 276.37, sma20 274.88, sma50 267.39, roc20 +7.21%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "AWAITING_APPROVAL",
+      "symbol": "US.JNJ",
+      "ticket_id": "P-20261118-0945-JNJ-04"
+    },
+    {
+      "created_at": "2026-11-18T14:49:53+00:00",
+      "est_cost": 3387.69,
+      "evidence": [
+        {
+          "as_of": "2026-11-18T14:48:23+00:00",
+          "id": "Q-P-20261118-0945-WMT-05",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R10_EVIDENCE_STALE",
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 125.47,
+      "order_type": "LIMIT",
+      "proposal_hash": "7d9001e4184ff9b2a2daa45a2637d2e261ba6797d4a7d639d72294e65966b777",
+      "quantity": 27,
+      "rationale": "SATELLITE_ENTRY: last 125.47, sma20 124.58, sma50 115.79, roc20 +6.51%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "REJECTED",
+      "symbol": "US.WMT",
+      "ticket_id": "P-20261118-0945-WMT-05"
+    },
+    {
+      "created_at": "2026-11-18T14:49:53+00:00",
+      "est_cost": 3193.47,
+      "evidence": [
+        {
+          "as_of": "2026-11-18T14:48:23+00:00",
+          "id": "Q-P-20261118-0945-AAPL-06",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-18T14:23:39+00:00",
+          "id": "N-1004916400",
+          "kind": "news",
+          "source": "Benzinga"
+        },
+        {
+          "as_of": "2026-11-18T13:39:52+00:00",
+          "id": "N-1004912220",
+          "kind": "news",
+          "source": "\u73af\u7403\u5e02\u573a\u64ad\u62a5"
+        },
+        {
+          "as_of": "2026-11-18T12:13:01+00:00",
+          "id": "N-1004903732",
+          "kind": "news",
+          "source": "\u683c\u9686\u6c47"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 354.83,
+      "order_type": "LIMIT",
+      "proposal_hash": "83374281b7fda11e9ac69531e3dbd1795d6f2ba836e4e56065e22e153f6543f1",
+      "quantity": 9,
+      "rationale": "SATELLITE_ENTRY: last 354.83, sma20 347.80, sma50 341.20, roc20 +3.15%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "AWAITING_APPROVAL",
+      "symbol": "US.AAPL",
+      "ticket_id": "P-20261118-0945-AAPL-06"
+    }
+  ],
+  "skipped": [
+    {
+      "reason": "CORE_TREND_DOWN",
+      "symbol": "US.SPY"
+    },
+    {
+      "reason": "CORE_TREND_DOWN",
+      "symbol": "US.QQQ"
+    },
+    {
+      "reason": "CORE_TREND_DOWN",
+      "symbol": "US.IWM"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.MSFT"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.NVDA"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.GOOGL"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.META"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.AVGO"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.TSLA"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.JPM"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.V"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.UNH"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.XOM"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.HD"
+    },
+    {
+      "reason": "NO_SLOT",
+      "symbol": "US.AMZN"
+    }
+  ],
+  "slot": "09:45",
+  "trading_day": true
+}

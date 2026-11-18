@@ -69,20 +69,30 @@ class CloudClient:
     def _redact(self, message: str) -> str:
         return message.replace(self._token, "[redacted]") if self._token else message
 
-    def _get(self, path: str, params: Optional[dict[str, Any]] = None) -> dict:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Optional[dict[str, Any]] = None,
+        payload: Optional[dict] = None,
+    ) -> dict:
         query = ""
         if params:
             clean = {k: v for k, v in params.items() if v not in (None, "")}
             if clean:
                 query = "?" + urllib.parse.urlencode(clean, doseq=True)
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/json",
+            "User-Agent": "moomoo-dashboard/1",
+        }
+        data = None
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
         request = urllib.request.Request(
-            self._base_url + path + query,
-            headers={
-                "Authorization": f"Bearer {self._token}",
-                "Accept": "application/json",
-                "User-Agent": "moomoo-dashboard/1",
-            },
-            method="GET",
+            self._base_url + path + query, data=data, headers=headers, method=method
         )
         try:
             status, body = self._transport(request, self._timeout)
@@ -115,7 +125,7 @@ class CloudClient:
         params: dict[str, Any] = {"limit": max(1, min(int(limit), 50)), "order": "desc"}
         if agent_id:
             params["agent_id"] = agent_id
-        data = self._get("/sessions", params).get("data")
+        data = self._request("GET", "/sessions", params=params).get("data")
         return [row for row in data or [] if isinstance(row, dict)]
 
     def session_events(
@@ -126,8 +136,25 @@ class CloudClient:
         params: dict[str, Any] = {"limit": max(1, min(int(limit), 100)), "order": "desc"}
         if types:
             params["types"] = ",".join(types)
-        data = self._get(f"/sessions/{session_id}/events", params).get("data")
+        data = self._request("GET", f"/sessions/{session_id}/events", params=params).get("data")
         return [row for row in data or [] if isinstance(row, dict)]
+
+    def send_user_message(self, session_id: str, text: str, *, limit: int = 256_000) -> dict:
+        if not SESSION_ID.match(session_id or ""):
+            raise CloudError(400, "invalid session id")
+        if not isinstance(text, str) or not text.strip():
+            raise CloudError(400, "message text is required")
+        if len(text) > limit:
+            raise CloudError(413, f"message exceeds {limit} characters")
+        return self._request(
+            "POST",
+            f"/sessions/{session_id}/events",
+            payload={
+                "events": [
+                    {"type": "user.message", "content": [{"type": "text", "text": text}]}
+                ]
+            },
+        )
 
 
 def _clip(text: str, limit: int = 240) -> str:

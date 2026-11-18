@@ -67,8 +67,9 @@
   </section>
 
   <footer>
-    Approving here writes a hash-bound record to <code>runtime/approvals.json</code>.
-    This dashboard has no broker access: only the Guard submits, on a manual run.
+    Approving here writes a hash-bound record to <code>runtime/approvals.json</code> and starts
+    the Guard agent, which re-runs the rule gate before submitting. Rejecting appends to
+    <code>runtime/rejections.jsonl</code>. This dashboard has no broker access.
   </footer>
 </main>
 

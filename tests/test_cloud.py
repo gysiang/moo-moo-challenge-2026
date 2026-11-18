@@ -115,6 +115,48 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(cloud.CloudError):
             client.sessions()
 
+    def test_send_user_message_posts_event(self):
+        transport = ok({"data": []})
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        client.send_user_message("sess_abc123", "run the guard")
+        request = transport.calls[0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(
+            request.full_url, "https://api.qoder.com/api/v1/cloud/sessions/sess_abc123/events"
+        )
+        self.assertEqual(request.get_header("Authorization"), f"Bearer {TOKEN}")
+        self.assertEqual(json.loads(request.data.decode("utf-8")), {
+            "events": [
+                {
+                    "type": "user.message",
+                    "content": [{"type": "text", "text": "run the guard"}],
+                }
+            ]
+        })
+
+    def test_send_user_message_validates_input(self):
+        transport = ok({"data": []})
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        with self.assertRaises(cloud.CloudError):
+            client.send_user_message("../agents", "x")
+        with self.assertRaises(cloud.CloudError):
+            client.send_user_message("sess_abc123", "   ")
+        with self.assertRaises(cloud.CloudError):
+            client.send_user_message("sess_abc123", "x" * 256_001)
+        self.assertEqual(transport.calls, [])
+
+    def test_send_user_message_maps_http_error_with_status(self):
+        client = cloud.CloudClient(
+            TOKEN,
+            transport=FakeTransport(
+                lambda request: (409, json.dumps({"error": {"message": "session archived"}}).encode())
+            ),
+        )
+        with self.assertRaises(cloud.CloudError) as caught:
+            client.send_user_message("sess_abc123", "hi")
+        self.assertEqual(caught.exception.status, 409)
+        self.assertIn("archived", caught.exception.message)
+
 
 class SummarizeTests(unittest.TestCase):
     def test_session_summary(self):

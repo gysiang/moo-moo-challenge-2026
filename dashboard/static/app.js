@@ -154,7 +154,8 @@ function renderGuard(s) {
     <div class="line"><span>halted</span><span>${g.halted ? "yes" : "no"}</span></div>
     <div class="line"><span>kill switch</span><span>${g.kill_switch ? "yes" : "no"}</span></div>
     <div class="line"><span>approvals valid</span><span>${Object.keys(s.approvals || {}).length}</span></div>
-    <div class="line"><span>execution</span><span>manual Guard run only</span></div>`;
+    <div class="line"><span>operator rejects</span><span>${(s.counts || {}).operator_rejected ?? 0}</span></div>
+    <div class="line"><span>execution</span><span>${(s.guard_link || {}).configured ? esc(s.guard_link.session_id) : "manual Guard run only"}</span></div>`;
 }
 
 const pillClass = (status) =>
@@ -162,15 +163,17 @@ const pillClass = (status) =>
   : status === "AWAITING_APPROVAL" ? "awaiting"
   : status === "APPROVED" ? "approved"
   : status === "APPROVAL_EXPIRED" ? "expired"
-  : status === "REJECTED" ? "rejected"
+  : status === "REJECTED" || status === "REJECTED_BY_OPERATOR" ? "rejected"
   : "";
 
 function renderDecisions(s) {
   const rows = s.decisions || [];
   const c = s.counts || {};
+  const guardOn = (s.guard_link || {}).configured;
   document.getElementById("decision-counts").innerHTML = `
     <span>awaiting ${c.awaiting ?? 0}</span><span>approved ${c.approved ?? 0}</span>
-    <span>rejected ${c.rejected ?? 0}</span><span>ready ${c.ready ?? 0}</span>`;
+    <span>rejected ${c.rejected ?? 0}</span><span>operator rejected ${c.operator_rejected ?? 0}</span>
+    <span>ready ${c.ready ?? 0}</span>`;
   const head = `<tr><th class="col-time">Generated</th><th>Ticket</th><th>Side</th><th>Symbol</th><th class="num">Qty</th><th class="num">Limit</th><th class="num col-cost">Est cost</th><th>Gate</th><th>Status</th><th></th></tr>`;
   if (!rows.length) {
     document.getElementById("decisions").innerHTML = head + `<tr><td colspan="10" class="empty">No cycle reports in <code>runtime/</code> yet.</td></tr>`;
@@ -181,9 +184,19 @@ function renderDecisions(s) {
     const codes = (d.gate_codes || []).join(", ") || "ok";
     const short = (d.gate_codes || []).map((c) => String(c).split("_")[0]).join(", ") || "ok";
     const canApprove = d.status === "AWAITING_APPROVAL";
-    const action = canApprove
-      ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Approve</button>`
-      : "";
+    const canReject = d.status === "AWAITING_APPROVAL";
+    const canRunGuard =
+      d.status === "APPROVED" && guardOn && (!d.guard_state || d.guard_state === "rejected");
+    const action = [
+      canApprove
+        ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Approve${guardOn ? " + Guard" : ""}</button>`
+        : canRunGuard
+        ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Run Guard</button>`
+        : "",
+      canReject
+        ? `<button class="ghost" data-reject="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Reject</button>`
+        : "",
+    ].filter(Boolean).join(" ");
     const main = `<tr class="row-toggle" data-row="${esc(key)}">
       <td class="col-time">${clock(d.generated_at)}</td>
       <td>${esc(d.ticket_id)}</td>
@@ -210,11 +223,21 @@ function renderDecisions(s) {
           <h4>Generated / gate</h4>
           <p>${clock(d.generated_at)} · ${esc(codes)}</p>
           ${d.approval_expires_at ? `<h4>Approval expires</h4><p>${clock(d.approval_expires_at)}</p>` : ""}
+          ${d.guard_triggered_at ? `<h4>Guard run</h4><p>${clock(d.guard_triggered_at)} · ${esc(d.guard_session_id || "")}</p>` : ""}
+          ${d.guard_state && d.guard_state !== "accepted" ? `<h4>Guard trigger</h4><p>${esc(d.guard_state)}${d.guard_state === "unknown" ? " · check the Guard session before retrying" : ""}</p>` : ""}
+          ${d.rejected_at ? `<h4>Rejected by operator</h4><p>${clock(d.rejected_at)} · ${esc(d.rejection_reason || "")}</p>` : ""}
         </div>
         <div>
           <h4>Evidence</h4>
           <ul class="evidence">${evidence || "<li>none</li>"}</ul>
-          ${canApprove ? `<div class="approve-box"><button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Approve this ticket</button><span class="muted">writes approvals.json · no order sent</span></div>` : ""}
+          ${canApprove || canRunGuard ? `<div class="approve-box">
+            <button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">${canRunGuard ? "Run Guard now" : "Approve this ticket"}</button>
+            <span class="muted">${guardOn ? "writes approvals.json · starts the Guard session · the gate re-checks everything" : "writes approvals.json · no order sent"}</span>
+          </div>` : ""}
+          ${canReject ? `<div class="approve-box">
+            <button class="ghost" data-reject="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Reject this ticket</button>
+            <span class="muted">appends to rejections.jsonl · nothing is sent</span>
+          </div>` : ""}
         </div>
       </div>
     </td></tr>`;
@@ -339,7 +362,7 @@ async function load() {
 async function approve(ticketId, cycleFile, button) {
   if (busy) return;
   const ok = confirm(
-    `Approve ${ticketId}?\n\nThis writes a hash-bound approval to runtime/approvals.json.\nIt does not place an order - only the Guard submits on a manual run.`
+    `Approve ${ticketId}?\n\nThis writes a hash-bound approval to runtime/approvals.json and starts the Guard agent.\nThe Guard re-runs the rule gate before anything is sent; it never widens the ticket.`
   );
   if (!ok) return;
   busy = true;
@@ -353,12 +376,48 @@ async function approve(ticketId, cycleFile, button) {
     const body = await res.json();
     if (!res.ok || !body.ok) {
       toast(body.error || "approval failed", true);
+    } else if ((body.guard || {}).triggered) {
+      toast(`Approved ${ticketId} · Guard run started (${body.guard.session_id})`);
+      await load();
+    } else if (body.guard && body.guard.configured === false) {
+      toast(`Approved ${ticketId} until ${clock(body.expires_at)} · guard link disabled`);
+      await load();
     } else {
-      toast(`Approved ${ticketId} until ${clock(body.expires_at)}`);
+      toast(`Approved ${ticketId}, but the Guard did not start: ${(body.guard || {}).error || "unknown"}`, true);
       await load();
     }
   } catch (err) {
     toast("approval error: " + err.message, true);
+  } finally {
+    if (button) button.disabled = false;
+    busy = false;
+  }
+}
+
+async function reject(ticketId, cycleFile, button) {
+  if (busy) return;
+  const ok = confirm(
+    `Reject ${ticketId}?\n\nThis appends a rejection record to runtime/rejections.jsonl and blocks approval for this ticket.\nNothing is sent to the broker.`
+  );
+  if (!ok) return;
+  const reason = "operator rejected in dashboard";
+  busy = true;
+  if (button) button.disabled = true;
+  try {
+    const res = await fetch("/api/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket_id: ticketId, cycle_file: cycleFile, reason }),
+    });
+    const body = await res.json();
+    if (!res.ok || !body.ok) {
+      toast(body.error || "rejection failed", true);
+    } else {
+      toast(`Rejected ${ticketId} · logged`);
+      await load();
+    }
+  } catch (err) {
+    toast("rejection error: " + err.message, true);
   } finally {
     if (button) button.disabled = false;
     busy = false;
@@ -370,6 +429,12 @@ document.addEventListener("click", (event) => {
   if (approveBtn) {
     event.stopPropagation();
     approve(approveBtn.dataset.approve, approveBtn.dataset.cycle, approveBtn);
+    return;
+  }
+  const rejectBtn = event.target.closest("[data-reject]");
+  if (rejectBtn) {
+    event.stopPropagation();
+    reject(rejectBtn.dataset.reject, rejectBtn.dataset.cycle, rejectBtn);
     return;
   }
   const cloudRow = event.target.closest("[data-cloud]");
