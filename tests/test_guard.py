@@ -217,7 +217,7 @@ class TestReplay(GuardTestBase):
         accepted = guard.submit(first, make_instrument(), make_state(first))
         guard.reconcile(accepted.order_id)
         expired = replace(
-            approve(second), approved_at=second.created_at - timedelta(minutes=31)
+            approve(second), expires_at=second.created_at - timedelta(minutes=1)
         )
         rejected = guard.submit(
             second,
@@ -281,7 +281,7 @@ class TestGuardSafety(GuardTestBase):
     def test_gate_failure_never_reaches_broker(self) -> None:
         proposal = make_proposal()
         expired = replace(
-            approve(proposal), approved_at=proposal.created_at - timedelta(minutes=31)
+            approve(proposal), expires_at=proposal.created_at - timedelta(minutes=1)
         )
         broker = FakeBroker()
         guard, log = self.make_guard(broker)

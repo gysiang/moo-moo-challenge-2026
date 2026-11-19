@@ -11,7 +11,7 @@ from gate import Approval, Evidence, Position, load_limits
 from gate.models import AccountState
 from scout.account import load_account, load_approvals, save_approval
 from scout.cycle import Scout
-from scout.marketdata import build_snapshot, metrics_from_history
+from scout.marketdata import build_snapshot, ema, metrics_from_history
 from scout.models import AWAITING_APPROVAL, READY, REJECTED, Metrics, Snapshot
 from scout.settings import StrategySettings, load_strategy
 from scout.slots import (
@@ -50,6 +50,8 @@ def make_metrics(
     roc20: float = 0.05,
     instrument_type: str = "stock",
     market_cap: float = 1e12,
+    ema_fast: float | None = None,
+    ema_slow: float | None = None,
 ) -> Metrics:
     return Metrics(
         symbol=symbol,
@@ -58,6 +60,8 @@ def make_metrics(
         market_cap=market_cap,
         sma20=sma20,
         sma50=sma50,
+        ema_fast=sma20 if ema_fast is None else ema_fast,
+        ema_slow=sma50 if ema_slow is None else ema_slow,
         high20=high20,
         roc20=roc20,
         as_of=SNAPSHOT_AS_OF,
@@ -158,6 +162,60 @@ class TestMarketData(unittest.TestCase):
         with self.assertRaises(ValueError):
             metrics_from_history("US.TST", "stock", 1e9, [1.0] * 49, [1.0] * 20, SNAPSHOT_AS_OF)
 
+    def test_ema_seeded_with_sma_then_recursive(self) -> None:
+        closes = [float(i + 1) for i in range(60)]
+        expected = sum(closes[:8]) / 8
+        weight = 2 / 9
+        for close in closes[8:]:
+            expected = close * weight + expected * (1 - weight)
+        self.assertAlmostEqual(ema(closes, 8), expected)
+        self.assertAlmostEqual(ema([5.0] * 60, 21), 5.0)
+
+    def test_ema_rejects_invalid_period(self) -> None:
+        with self.assertRaises(ValueError):
+            ema([1.0] * 60, 0)
+        with self.assertRaises(ValueError):
+            ema([1.0] * 5, 8)
+
+    def test_fast_ema_leads_slow_ema_on_rebound(self) -> None:
+        closes = [130.0 - i for i in range(57)] + [100.0, 110.0, 120.0]
+        highs = [c + 1 for c in closes]
+        metrics = metrics_from_history("US.TST", "etf", 6e11, closes, highs, SNAPSHOT_AS_OF)
+        self.assertGreater(metrics.ema_fast, metrics.ema_slow)
+        self.assertLess(metrics.sma20, metrics.sma50)
+        self.assertTrue(metrics.trend_up)
+
+    def test_trend_up_ignores_price_vs_sma50(self) -> None:
+        metrics = make_metrics("US.TST", 90.0, 92.0, 95.0, 101.0, ema_fast=96.0, ema_slow=94.0)
+        self.assertLess(metrics.last_price, metrics.sma50)
+        self.assertTrue(metrics.trend_up)
+
+    def test_snapshot_uses_configured_ema_periods(self) -> None:
+        closes = [100.0 + i for i in range(60)]
+        raw = {
+            "as_of": "2026-11-16T21:00:00Z",
+            "symbols": {
+                "US.SPY": {
+                    "instrument_type": "etf",
+                    "market_cap": 6e11,
+                    "closes": closes,
+                    "highs": [c + 1 for c in closes],
+                }
+            },
+        }
+        default = build_snapshot(raw).metrics["US.SPY"]
+        tuned = build_snapshot(raw, ema_fast=5, ema_slow=10).metrics["US.SPY"]
+        self.assertAlmostEqual(tuned.ema_fast, ema(closes, 5))
+        self.assertAlmostEqual(tuned.ema_slow, ema(closes, 10))
+        self.assertNotAlmostEqual(default.ema_fast, tuned.ema_fast)
+
+    def test_rejects_fast_period_not_below_slow(self) -> None:
+        with self.assertRaises(ValueError):
+            metrics_from_history(
+                "US.TST", "stock", 1e9, [1.0] * 60, [1.0] * 60, SNAPSHOT_AS_OF,
+                ema_fast=21, ema_slow=8,
+            )
+
     def test_build_snapshot_from_raw(self) -> None:
         closes = [100.0 + i for i in range(60)]
         raw = {
@@ -232,6 +290,38 @@ class TestStrategy(unittest.TestCase):
         )
         self.assertEqual(candidates, [])
         self.assertEqual(skipped[0].reason, "ENTRIES_BLOCKED_LAST_30_MIN")
+
+    def test_exit_on_ema_trend_cross_above_sma50(self) -> None:
+        positions = {"US.AAPL": Position("US.AAPL", 10, 1050.0, 100.0)}
+        snapshot = make_snapshot(
+            **{
+                "US.AAPL": make_metrics(
+                    "US.AAPL", 105.0, 104.0, 100.0, 110.0, ema_fast=99.0, ema_slow=101.0
+                )
+            }
+        )
+        candidates, _ = build_candidates(
+            snapshot, positions, 100_000.0, SETTINGS, WATCHLIST, allow_entries=True
+        )
+        exit_order = next(c for c in candidates if c.sleeve == "exit")
+        self.assertEqual(exit_order.reason, "EXIT_TREND_CROSS")
+        self.assertEqual(exit_order.quantity, 10)
+
+    def test_core_enters_before_sma20_crosses_sma50(self) -> None:
+        snapshot = make_snapshot(
+            **{
+                "US.SPY": make_metrics(
+                    "US.SPY", 100.0, 98.0, 99.0, 101.0,
+                    instrument_type="etf", ema_fast=100.5, ema_slow=99.5,
+                )
+            }
+        )
+        self.assertLess(snapshot.metrics["US.SPY"].sma20, snapshot.metrics["US.SPY"].sma50)
+        candidates, _ = build_candidates(
+            snapshot, {}, 100_000.0, SETTINGS, WATCHLIST, allow_entries=True
+        )
+        spy = next(c for c in candidates if c.symbol == "US.SPY")
+        self.assertEqual(spy.reason, "CORE_ENTRY")
 
     def test_exit_below_sma50(self) -> None:
         positions = {

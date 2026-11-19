@@ -1,0 +1,15 @@
+{
+  "account_id": "5829804",
+  "allowed_reasons": [
+    "EXIT_BELOW_SMA50",
+    "EXIT_CORE_BELOW_SMA50",
+    "EXIT_STOP_LOSS",
+    "EXIT_TREND_CROSS"
+  ],
+  "expires_at": "2026-11-26T07:16:23.312896+00:00",
+  "granted_at": "2026-11-19T07:16:23.312896+00:00",
+  "mandate_hash": "4561f6244f0ed5a424a7f24cf8582b96290fd2eae3a08964f73b6d5647f81064",
+  "mandate_id": "M-5829804-20261119071623",
+  "max_exits_per_run": 6,
+  "note": "Path B overnight stop protection; re-grant after 2026-11-26 to cover the final week (granted by operator)"
+}

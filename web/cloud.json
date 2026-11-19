@@ -1,0 +1,71 @@
+{
+ "configured": true,
+ "sessions": [
+  {
+   "agent": "moomoo-scout",
+   "agent_id": "agent_00vuhbzebqepsww0bgm2",
+   "created_at": "2026-11-19T14:45:00.768882Z",
+   "credits": 7.39,
+   "deployment_id": null,
+   "id": "sess_00vz5phjzp79cad5hr4u",
+   "status": "idle",
+   "title": "scout-0945",
+   "updated_at": "2026-11-19T15:15:59.361591Z"
+  },
+  {
+   "agent": "moomoo-scout",
+   "agent_id": "agent_00vuhbzebqepsww0bgm2",
+   "created_at": "2026-11-18T20:30:00.796703Z",
+   "credits": 13.09,
+   "deployment_id": null,
+   "id": "sess_00vwg10alb94xbhldrb3",
+   "status": "idle",
+   "title": "scout-1530",
+   "updated_at": "2026-11-18T20:35:53.057954Z"
+  },
+  {
+   "agent": "moomoo-scout",
+   "agent_id": "agent_00vuhbzebqepsww0bgm2",
+   "created_at": "2026-11-18T18:30:00.933422Z",
+   "credits": 12.85,
+   "deployment_id": null,
+   "id": "sess_00vw5bmyzos8w1z227s1",
+   "status": "idle",
+   "title": "scout-1330",
+   "updated_at": "2026-11-18T18:35:37.108556Z"
+  },
+  {
+   "agent": "moomoo-scout",
+   "agent_id": "agent_00vuhbzebqepsww0bgm2",
+   "created_at": "2026-11-18T16:00:00.745853Z",
+   "credits": 13.96,
+   "deployment_id": null,
+   "id": "sess_00vvrxxhnery8axaonfv",
+   "status": "idle",
+   "title": "scout-1100",
+   "updated_at": "2026-11-18T16:07:50.25168Z"
+  },
+  {
+   "agent": "moomoo-scout",
+   "agent_id": "agent_00vuhbzebqepsww0bgm2",
+   "created_at": "2026-11-18T14:45:00.68992Z",
+   "credits": 10.78,
+   "deployment_id": null,
+   "id": "sess_00vvl92d2jgg06lp23uy",
+   "status": "idle",
+   "title": "scout-0945",
+   "updated_at": "2026-11-18T14:49:57.075909Z"
+  },
+  {
+   "agent": "moomoo-guard",
+   "agent_id": "agent_00vuhkfjmo4qonqvq8ak",
+   "created_at": "2026-11-18T08:27:12.346416Z",
+   "credits": 3.53,
+   "deployment_id": null,
+   "id": "sess_00vunjsgh6bcxvm7xq04",
+   "status": "idle",
+   "title": "guard-exec \u00b7 dashboard-approved orders",
+   "updated_at": "2026-11-18T16:13:12.318473Z"
+  }
+ ]
+}

@@ -42,6 +42,7 @@ def load_account(path: Path, now: datetime) -> AccountState:
         working_orders=working,
         executed_orders_today=int(payload.get("executed_orders_today", 0)),
         daily_pnl_pct=daily_pnl_pct,
+        account_id=str(payload.get("account_id", "")),
     )
 
 

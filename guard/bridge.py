@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from gate import Approval, Evidence, Instrument, Proposal, evaluate
+from gate import Approval, Evidence, ExitMandate, Instrument, Proposal, evaluate
 from gate.config import Limits
 from gate.models import AccountState
 
@@ -49,6 +50,7 @@ def proposal_from_record(record: dict) -> Proposal:
         est_cost=float(record["est_cost"]),
         starter_tranche=1,
         rationale=record.get("rationale", ""),
+        exit_reason=record.get("exit_reason", ""),
         evidence=tuple(
             Evidence(
                 evidence_id=item["id"],
@@ -102,14 +104,25 @@ def prepare_order(
     metrics: Optional[dict[str, Any]] = None,
     acc_id: str = DEFAULT_ACC_ID,
     market: int = DEFAULT_MARKET,
+    mandate: Optional[ExitMandate] = None,
+    run_key: str = "",
+    exits_this_run: int = 0,
 ) -> dict[str, Any]:
     """Re-run the gate at execution time and emit the exact MCP tool call."""
     proposal = proposal_from_record(record)
     instrument = instrument_for(record, metrics)
-    gate = evaluate(proposal, instrument, state, limits)
+    gate = evaluate(
+        proposal,
+        instrument,
+        replace(state, mandated_exits_this_run=exits_this_run),
+        limits,
+        mandate,
+    )
     plan: dict[str, Any] = {
         "ticket_id": proposal.ticket_id,
         "proposal_hash": proposal.canonical_hash(),
+        "exit_reason": proposal.exit_reason,
+        "run_key": run_key,
         "gate": {
             "passed": gate.passed,
             "codes": list(gate.codes),
@@ -121,6 +134,11 @@ def prepare_order(
         failure = gate.first_failure
         plan["reason"] = failure.code if failure else ""
         return plan
+    if mandate is not None and proposal.side == "SELL" and proposal.exit_reason:
+        plan["authorization"] = "MANDATE"
+        plan["mandate_id"] = mandate.mandate_id
+    else:
+        plan["authorization"] = "APPROVAL"
     request = OrderRequest(
         ticket_id=proposal.ticket_id,
         symbol=proposal.symbol,
@@ -168,6 +186,9 @@ def record_submission(plan: dict, result: Any, log: EventLog) -> dict[str, Any]:
         side="BUY" if arguments["order_side"] == 1 else "SELL",
         quantity=int(arguments["qty"]),
         limit_price=float(arguments["price"]),
+        exit_reason=plan.get("exit_reason", ""),
+        run_key=plan.get("run_key", ""),
+        authorization=plan.get("authorization", "APPROVAL"),
     )
     return {"status": "SUBMITTED", "order_id": str(order_id)}
 

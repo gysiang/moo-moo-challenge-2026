@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 from dashboard import state
 from dashboard.server import serve
+from gate import EXIT_REASONS, ExitMandate, save_mandate
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "runtime" / "dashboard-demo"
@@ -372,10 +373,26 @@ class LiveRuntime(DemoRuntime):
         ):
             shutil.copyfile(self.path / src, self.path / dst)
 
+    def stamp(self, moment: datetime) -> None:
+        stamp = moment.isoformat()
+        cycle_path = self.path / "cycle-20261118-0945.json"
+        cycle = json.loads(cycle_path.read_text(encoding="utf-8"))
+        cycle["generated_at"] = stamp
+        cycle_path.write_text(json.dumps(cycle, indent=2), encoding="utf-8")
+        for name in ("account-5829804.json", "metrics.json"):
+            path = self.path / name
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["as_of"] = stamp
+            path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def stamp_fresh(self) -> None:
+        self.stamp(datetime.now(timezone.utc) - timedelta(minutes=5))
+
 
 class GuardLinkServerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.rt = LiveRuntime()
+        self.rt.stamp_fresh()
         self.guard = FakeGuard()
         self.httpd = serve(
             runtime=self.rt.path,
@@ -472,6 +489,94 @@ class GuardLinkServerTests(unittest.TestCase):
         rows = {row["ticket_id"]: row for row in self._state()["decisions"]}
         self.assertEqual(rows["P-20261118-0945-SPY-01"]["guard_state"], "unknown")
         self.assertIsNone(rows["P-20261118-0945-SPY-01"]["guard_triggered_at"])
+
+    def _grant_mandate(self, **overrides) -> None:
+        now = datetime.now(timezone.utc)
+        save_mandate(
+            self.rt.path / "exit-mandate.json",
+            ExitMandate(
+                mandate_id="M-TEST-1",
+                account_id="5829804",
+                granted_at=now - timedelta(hours=1),
+                expires_at=now + timedelta(hours=12),
+                allowed_reasons=frozenset(EXIT_REASONS),
+                max_exits_per_run=overrides.get("max_exits_per_run", 6),
+                note="test mandate",
+            ),
+        )
+
+    def _exit_ticket(self, **overrides) -> tuple[int, dict]:
+        return self._post(
+            "/api/approve",
+            {
+                "ticket_id": "P-20261118-0945-NVDA-02",
+                "cycle_file": "cycle-20261118-0945.json",
+                **overrides,
+            },
+        )
+
+    def test_stale_snapshot_blocks_the_guard_trigger(self):
+        self.rt.stamp(datetime.now(timezone.utc) - timedelta(hours=3))
+        status, body = self._approve()
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertFalse(body["guard"]["triggered"])
+        self.assertIn("snapshot is", body["guard"]["error"])
+        self.assertEqual(self.guard.envelopes, [])
+
+    def test_mandated_exit_runs_guard_without_an_approval(self):
+        self._grant_mandate()
+        status, body = self._exit_ticket()
+        self.assertEqual(status, 200)
+        self.assertEqual(body["authorization"], "MANDATE")
+        self.assertTrue(body["guard"]["triggered"])
+        envelope = self.guard.envelopes[0]
+        self.assertEqual(envelope["authorization"], "MANDATE")
+        self.assertEqual(envelope["mandate_id"], "M-TEST-1")
+        self.assertEqual(envelope["evidence"]["approvals"], {})
+        approvals = json.loads((self.rt.path / "approvals.json").read_text(encoding="utf-8"))
+        self.assertNotIn("P-20261118-0945-NVDA-02", approvals)
+
+    def test_mandate_summary_is_published_in_state(self):
+        self._grant_mandate()
+        mandate = self._state()["exit_mandate"]
+        self.assertTrue(mandate["active"])
+        self.assertEqual(mandate["mandate_id"], "M-TEST-1")
+        self.assertEqual(mandate["max_exits_per_run"], 6)
+        self.assertNotIn("note", mandate)
+
+    def test_partial_exit_is_refused_under_a_mandate(self):
+        self._grant_mandate()
+        path = self.rt.path / "cycle-20261118-0945.json"
+        cycle = json.loads(path.read_text(encoding="utf-8"))
+        for record in cycle["records"]:
+            if record["ticket_id"] == "P-20261118-0945-NVDA-02":
+                record["quantity"] = 10
+        path.write_text(json.dumps(cycle), encoding="utf-8")
+        status, body = self._exit_ticket()
+        self.assertEqual(status, 409)
+        self.assertIn("full exits only", body["error"])
+        self.assertEqual(self.guard.envelopes, [])
+
+    def test_gate_rejected_exit_is_refused_under_a_mandate(self):
+        self._grant_mandate()
+        path = self.rt.path / "cycle-20261118-0945.json"
+        cycle = json.loads(path.read_text(encoding="utf-8"))
+        for record in cycle["records"]:
+            if record["ticket_id"] == "P-20261118-0945-NVDA-02":
+                record["status"] = "REJECTED"
+        path.write_text(json.dumps(cycle), encoding="utf-8")
+        status, body = self._exit_ticket()
+        self.assertEqual(status, 409)
+        self.assertIn("rejected by the gate", body["error"])
+
+    def test_mandate_does_not_authorize_entries(self):
+        self._grant_mandate()
+        status, body = self._approve()
+        self.assertEqual(status, 200)
+        self.assertNotIn("authorization", body)
+        self.assertTrue(body["guard"]["triggered"])
+        self.assertEqual(self.guard.envelopes[0]["authorization"], "APPROVAL")
 
     def test_reject_endpoint_writes_log_and_blocks_approval(self):
         status, body = self._post(

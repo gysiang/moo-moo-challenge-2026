@@ -19,6 +19,7 @@ EARLY_CLOSES: dict[date, time] = {
 }
 
 NO_ENTRY_MINUTES_BEFORE_CLOSE = 30
+REGULAR_OPEN = time(9, 30)
 
 
 def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
@@ -79,3 +80,53 @@ def due_slot(now: datetime, window_minutes: int = 15) -> Optional[str]:
         if slot_available(slot, day) and 0 <= minutes - _slot_minutes(slot) < window_minutes:
             return slot
     return None
+
+
+def _et_datetime(day: date, moment: time) -> datetime:
+    # Noon UTC anchors the offset so a DST switch inside the day cannot shift the session.
+    offset = eastern(datetime.combine(day, time(12, 0), tzinfo=timezone.utc)).utcoffset()
+    return datetime.combine(day, moment, tzinfo=timezone(offset))
+
+
+def market_session(now: datetime) -> dict:
+    """Regular-session state of the US cash market, from the same calendar the slots use."""
+    local = eastern(now)
+    day = local.date()
+    close = session_close(day)
+    trading = is_trading_day(day)
+    minutes = local.hour * 60 + local.minute
+    open_minutes = REGULAR_OPEN.hour * 60 + REGULAR_OPEN.minute
+    close_minutes = close.hour * 60 + close.minute
+
+    if not trading:
+        state, reason = "CLOSED", "holiday" if day in HOLIDAYS else "weekend"
+    elif minutes < open_minutes:
+        state, reason = "CLOSED", "before the open"
+    elif minutes >= close_minutes:
+        state, reason = "CLOSED", "after the close"
+    else:
+        state, reason = "OPEN", "early close" if day in EARLY_CLOSES else "regular session"
+
+    closes_at = None
+    next_open = None
+    if state == "OPEN":
+        closes_at = _et_datetime(day, close).isoformat()
+    else:
+        probe = day if trading and minutes < open_minutes else day + timedelta(days=1)
+        for _ in range(10):
+            if is_trading_day(probe):
+                next_open = _et_datetime(probe, REGULAR_OPEN).isoformat()
+                break
+            probe += timedelta(days=1)
+
+    return {
+        "state": state,
+        "reason": reason,
+        "trading_day": trading,
+        "early_close": day in EARLY_CLOSES,
+        "et_date": day.isoformat(),
+        "session_open": REGULAR_OPEN.strftime("%H:%M"),
+        "session_close": close.strftime("%H:%M"),
+        "closes_at": closes_at,
+        "next_open": next_open,
+    }

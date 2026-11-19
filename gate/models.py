@@ -49,6 +49,7 @@ class Proposal:
     starter_tranche: int
     rationale: str = ""
     evidence: tuple[Evidence, ...] = ()
+    exit_reason: str = ""
 
     def __post_init__(self) -> None:
         as_utc(self.created_at)
@@ -104,6 +105,8 @@ class AccountState:
     executed_orders_today: int = 0
     daily_pnl_pct: float = 0.0
     approval: Optional[Approval] = None
+    account_id: str = ""
+    mandated_exits_this_run: int = 0
 
     def __post_init__(self) -> None:
         as_utc(self.now)

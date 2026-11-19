@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from gate import load_limits
+from gate import ExitMandate, load_limits, load_mandate
 from guard.bridge import (
     DEFAULT_ACC_ID,
     DEFAULT_MARKET,
@@ -19,7 +19,7 @@ from guard.bridge import (
     record_resume,
     record_submission,
 )
-from guard.events import EventLog
+from guard.events import EventLog, mandated_exits_in_run
 from scout.account import load_account
 
 
@@ -37,6 +37,17 @@ def _find_record(cycle: dict, ticket: str) -> dict:
     raise SystemExit(f"ticket {ticket} not in cycle report")
 
 
+def _run_key(cycle: dict) -> str:
+    return f"{cycle['generated_at'][:10]}:{cycle['slot']}"
+
+
+def _mandate(path: str) -> Optional[ExitMandate]:
+    try:
+        return load_mandate(path)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+
+
 def cmd_prepare(args: argparse.Namespace) -> int:
     now = _now(args.now)
     cycle = json.loads(Path(args.cycle).read_text(encoding="utf-8"))
@@ -49,6 +60,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         if args.metrics
         else None
     )
+    run_key = _run_key(cycle)
     plan = prepare_order(
         record,
         state,
@@ -56,11 +68,15 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         metrics=metrics,
         acc_id=args.acc_id,
         market=args.market,
+        mandate=_mandate(args.mandate) if args.mandate else None,
+        run_key=run_key,
+        exits_this_run=mandated_exits_in_run(args.log, run_key),
     )
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(plan, indent=2, sort_keys=True), encoding="utf-8")
     print(f"{plan['status']} {plan['ticket_id']} gate={','.join(plan['gate']['codes']) or 'ok'}")
     if plan["status"] == "READY":
+        print(f"authorization {plan['authorization']}")
         print(f"tool {plan['tool']} args {json.dumps(plan['arguments'], sort_keys=True)}")
     else:
         print(f"reason {plan.get('reason', '')}")
@@ -125,6 +141,8 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--now")
     prepare.add_argument("--acc-id", default=DEFAULT_ACC_ID)
     prepare.add_argument("--market", type=int, default=DEFAULT_MARKET)
+    prepare.add_argument("--mandate", default="runtime/exit-mandate.json")
+    prepare.add_argument("--log", default="runtime/guard-events.jsonl")
     prepare.set_defaults(func=cmd_prepare)
 
     record = sub.add_parser("record", help="record the moomoo place-order result")

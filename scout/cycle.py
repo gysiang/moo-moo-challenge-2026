@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Optional
 
-from gate import Approval, Evidence, Instrument, Proposal, evaluate
+from gate import Approval, Evidence, ExitMandate, Instrument, Proposal, evaluate
 from gate.config import Limits
 from gate.models import AccountState
 
@@ -27,11 +27,16 @@ MAX_NEWS_ITEMS = 3
 
 class Scout:
     def __init__(
-        self, limits: Limits, settings: StrategySettings, watchlist: Watchlist
+        self,
+        limits: Limits,
+        settings: StrategySettings,
+        watchlist: Watchlist,
+        mandate: Optional[ExitMandate] = None,
     ) -> None:
         self._limits = limits
         self._settings = settings
         self._watchlist = watchlist
+        self._mandate = mandate
 
     def run(
         self,
@@ -71,6 +76,7 @@ class Scout:
 
         records: list[Record] = []
         bare_slot = slot.replace(":", "")
+        mandated_exits = 0
         for index, candidate in enumerate(candidates, start=1):
             metrics = snapshot.metrics[candidate.symbol]
             bare_symbol = candidate.symbol.split(".", 1)[-1]
@@ -99,10 +105,12 @@ class Scout:
                 starter_tranche=1,
                 rationale=(
                     f"{candidate.reason}: last {metrics.last_price:.2f}, "
-                    f"sma20 {metrics.sma20:.2f}, sma50 {metrics.sma50:.2f}, "
-                    f"roc20 {metrics.roc20:+.2%}"
+                    f"ema{self._settings.trend_fast_ema} {metrics.ema_fast:.2f}, "
+                    f"ema{self._settings.trend_slow_ema} {metrics.ema_slow:.2f}, "
+                    f"sma50 {metrics.sma50:.2f}, roc20 {metrics.roc20:+.2%}"
                 ),
                 evidence=tuple(evidence),
+                exit_reason=candidate.reason if candidate.side == "SELL" else "",
             )
             instrument = Instrument(
                 symbol=metrics.symbol,
@@ -112,10 +120,17 @@ class Scout:
                 market_cap=metrics.market_cap,
                 tradable=metrics.tradable,
             )
-            state = replace(account, now=now, approval=approvals.get(ticket_id))
-            gate = evaluate(proposal, instrument, state, self._limits)
+            state = replace(
+                account,
+                now=now,
+                approval=approvals.get(ticket_id),
+                mandated_exits_this_run=mandated_exits,
+            )
+            gate = evaluate(proposal, instrument, state, self._limits, self._mandate)
             if gate.passed:
                 status = READY
+                if self._mandate is not None and proposal.exit_reason:
+                    mandated_exits += 1
             elif gate.codes == ("R11_NO_APPROVAL",):
                 status = AWAITING_APPROVAL
             else:
@@ -129,4 +144,6 @@ class Scout:
             entries_allowed=entries_ok,
             records=tuple(records),
             skipped=tuple(skipped),
+            mandate_id=self._mandate.mandate_id if self._mandate else "",
+            mandate_max_exits=self._mandate.max_exits_per_run if self._mandate else 0,
         )

@@ -52,7 +52,7 @@ def build_candidates(
                 reason = "EXIT_BELOW_SMA50"
             elif pnl_pct <= settings.satellite_exit_drawdown_pct:
                 reason = "EXIT_STOP_LOSS"
-            elif metrics.sma20 < metrics.sma50:
+            elif metrics.ema_fast < metrics.ema_slow:
                 reason = "EXIT_TREND_CROSS"
             else:
                 reason = None

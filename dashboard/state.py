@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from gate import Approval
-from scout.account import parse_time, save_approval
+from gate import Approval, load_mandate
+from guard.bridge import proposal_from_record
+from guard.events import mandated_exits_in_run
+from scout.account import load_account, parse_time, save_approval
+from scout.slots import market_session
 
 AWAITING = "AWAITING_APPROVAL"
 READY = "READY"
@@ -54,12 +58,33 @@ def load_limits(config_path: Path) -> dict[str, Any]:
         "max_orders_per_day": int(payload.get("max_orders_per_day", 20)),
         "max_single_name_pct": float(payload.get("max_single_name_pct", 0.40)),
         "approval_ttl_minutes": int(payload.get("approval_ttl_minutes", 30)),
+        "guard_max_snapshot_age_minutes": int(
+            payload.get("guard_max_snapshot_age_minutes", 30)
+        ),
     }
 
 
 def load_approvals(path: Path) -> dict[str, dict]:
     payload = read_json(path) or {}
     return {k: v for k, v in payload.items() if isinstance(v, dict)}
+
+
+def mandate_summary(path: Path, now: datetime) -> Optional[dict]:
+    try:
+        mandate = load_mandate(path)
+    except ValueError as exc:
+        return {"active": False, "error": str(exc)}
+    if mandate is None:
+        return None
+    return {
+        "mandate_id": mandate.mandate_id,
+        "account_id": mandate.account_id,
+        "granted_at": iso(mandate.granted_at),
+        "expires_at": iso(mandate.expires_at),
+        "allowed_reasons": sorted(mandate.allowed_reasons),
+        "max_exits_per_run": mandate.max_exits_per_run,
+        "active": mandate.granted_at <= now < mandate.expires_at,
+    }
 
 
 def load_rejections(path: Path) -> dict[str, dict]:
@@ -286,6 +311,7 @@ def decision_rows(
                     "raw_status": status,
                     "gate_codes": (record.get("gate") or {}).get("codes", []),
                     "rationale": record.get("rationale"),
+                    "exit_reason": record.get("exit_reason", ""),
                     "evidence": record.get("evidence", []),
                     "approval_expires_at": state["expires_at"],
                     "rejected_at": rejection.get("rejected_at") if rejection else None,
@@ -337,6 +363,7 @@ def build_state(
     return {
         "demo": demo,
         "as_of": iso(now),
+        "market": market_session(now),
         "has_snapshot": bool(account),
         "account_id": account.get("account_id"),
         "account_as_of": metrics.get("as_of"),
@@ -376,6 +403,7 @@ def build_state(
             "events": len(events),
         },
         "limits": limits,
+        "exit_mandate": mandate_summary(runtime / "exit-mandate.json", now),
     }
 
 
@@ -422,6 +450,56 @@ def approve_ticket(
         "ticket_id": ticket_id,
         "approved_at": iso(approval.approved_at),
         "expires_at": iso(approval.expires_at),
+    }
+
+
+def authorize_exit(
+    *,
+    runtime: Path,
+    cycle_file: str,
+    ticket_id: str,
+    now: Optional[datetime] = None,
+    events_file: str = "guard-events.jsonl",
+) -> Optional[dict]:
+    """Authorization for a mandated risk-reducing exit; None when no mandate applies."""
+    now = now or datetime.now(timezone.utc)
+    payload = read_json(runtime / Path(cycle_file).name) or {}
+    record = next(
+        (r for r in payload.get("records", []) if r.get("ticket_id") == ticket_id), None
+    )
+    if record is None or record.get("side") != "SELL" or not record.get("exit_reason"):
+        return None
+    if record.get("status") == "REJECTED":
+        return {
+            "ok": False,
+            "error": f"ticket {ticket_id} was rejected by the gate; re-run the cycle",
+        }
+    try:
+        mandate = load_mandate(runtime / "exit-mandate.json")
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if mandate is None:
+        return None
+    account_path = runtime / "account-5829804.json"
+    if not account_path.exists():
+        return {"ok": False, "error": "account snapshot account-5829804.json is missing"}
+    run_key = f"{str(payload.get('generated_at', ''))[:10]}:{payload.get('slot', '')}"
+    account = replace(
+        load_account(account_path, now),
+        mandated_exits_this_run=mandated_exits_in_run(runtime / events_file, run_key),
+    )
+    rejection = mandate.covers(proposal_from_record(record), account)
+    if rejection is not None:
+        return {
+            "ok": False,
+            "error": f"exit mandate does not cover {ticket_id}: {rejection.message}",
+        }
+    return {
+        "ok": True,
+        "ticket_id": ticket_id,
+        "authorization": "MANDATE",
+        "mandate_id": mandate.mandate_id,
+        "exit_reason": record["exit_reason"],
     }
 
 

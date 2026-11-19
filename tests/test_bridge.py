@@ -34,6 +34,7 @@ def record_for(proposal, instrument=None) -> dict:
         "est_cost": proposal.est_cost,
         "created_at": proposal.created_at.isoformat(),
         "rationale": proposal.rationale,
+        "exit_reason": proposal.exit_reason,
         "evidence": [
             {
                 "id": item.evidence_id,
@@ -121,7 +122,7 @@ class TestPrepareOrder(unittest.TestCase):
     def test_expired_approval_is_rejected(self) -> None:
         state = replace(
             make_state(self.proposal),
-            now=NOW + timedelta(minutes=31),
+            now=NOW + LIMITS.approval_ttl + timedelta(minutes=1),
         )
         plan = prepare_order(
             self.record, state, LIMITS, metrics=metrics_for("US.AAPL", self.instrument)

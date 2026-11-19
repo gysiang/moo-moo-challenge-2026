@@ -76,6 +76,19 @@ def read_events(path: str | Path) -> list[dict[str, Any]]:
     return events
 
 
+def mandated_exits_in_run(path: str | Path, run_key: str) -> int:
+    file = Path(path)
+    if not run_key or not file.exists():
+        return 0
+    return sum(
+        1
+        for event in read_events(file)
+        if event.get("event") == "ORDER_SUBMITTED"
+        and event.get("run_key") == run_key
+        and event.get("exit_reason")
+    )
+
+
 def replay(path: str | Path) -> ReplayState:
     submissions: list[Submission] = []
     reconciliations: list[dict[str, Any]] = []

@@ -14,6 +14,8 @@ class StrategySettings:
     satellite_near_high_pct: float = 0.05
     satellite_exit_drawdown_pct: float = -0.08
     min_weight_gap_pct: float = 0.01
+    trend_fast_ema: int = 8
+    trend_slow_ema: int = 21
 
 
 def load_strategy(path: Path) -> StrategySettings:

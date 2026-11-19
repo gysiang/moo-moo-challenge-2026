@@ -1,6 +1,6 @@
 ---
 name: moomoo-scout-cycle
-description: Run one Moomoo x Qoder Scout trading cycle on paper account 5829804 - fetch US-market quotes, klines, news and account state, build SMA/trend metrics, and emit dated BUY/SELL tickets through the deterministic rule gate. Use when a Scout slot fires (09:45, 11:00, 13:30, 15:30 ET) or when the operator asks for a fresh paper-trading proposal set. Never places orders.
+description: Run one Moomoo x Qoder Scout trading cycle on paper account 5829804 - fetch US-market quotes, klines, news and account state, build EMA/SMA trend metrics, and emit dated BUY/SELL tickets through the deterministic rule gate. Use when a Scout slot fires (09:45, 11:00, 13:30, 15:30 ET), for an exit-only run between slots, or when the operator asks for a fresh paper-trading proposal set. Never places orders.
 ---
 
 # Moomoo Scout cycle
@@ -32,7 +32,8 @@ print one line and stop.
 Account snapshot — never guess:
 
 ```json
-{"account_id": "5829804", "cash": 100000, "equity": 100000,
+{"account_id": "5829804", "as_of": "<UTC now ISO>",
+ "cash": 100000, "equity": 100000,
  "day_open_equity": 100000, "executed_orders_today": 0,
  "positions": {"US.SPY": {"quantity": 10, "market_value": 7400, "average_cost": 735}},
  "working_orders": [{"symbol": "US.SPY", "side": "BUY"}]}
@@ -40,7 +41,10 @@ Account snapshot — never guess:
 
 `cash` from `sim_trade_cash_info.balance`, `equity` from `total_asset`,
 `executed_orders_today` from today's order list, positions from `sim_trade_position_list`.
-Write it to `runtime/account-5829804.json`. A failed call aborts the cycle.
+Write it to `runtime/account-5829804.json`. A failed call aborts the cycle. `as_of` is
+mandatory: the dashboard and the Guard refuse snapshots older than
+`guard_max_snapshot_age_minutes` (30 by default), as they do for the cycle's
+`generated_at` and `metrics.as_of`.
 
 Klines → metrics (scripts only — raw candles never go into the conversation):
 
@@ -58,6 +62,10 @@ Klines → metrics (scripts only — raw candles never go into the conversation)
    fewer than 50 closes or 20 highs. The merge script prints only `symbols N omitted [...]`.
 4. `python -m scout.ingest --in runtime/mcp-klines.json --out runtime/market-raw.json`
 5. `python -m scout snapshot --raw runtime/market-raw.json --out runtime/metrics.json`
+
+Read `trend_up` per symbol: it is `ema_fast > ema_slow` (EMA8 > EMA21 from `config.json`).
+`sma50` is still printed and still governs exits, along with the -8% stop and the same EMA
+cross. Do not recompute or reinterpret these numbers.
 
 News (BUY evidence only):
 
@@ -81,14 +89,39 @@ python -m scout plan --slot 09:45 --raw runtime/market-raw.json \
     --approvals runtime/approvals.json --out runtime/cycle-0945.json
 ```
 
-Omit `--news` or `--approvals` when the file does not exist.
+Omit `--news` or `--approvals` when the file does not exist. The planner reads
+`runtime/exit-mandate.json` automatically when it exists: a covered full-position SELL comes
+back `READY` instead of `AWAITING_APPROVAL`, and every SELL record carries an `exit_reason`.
+Entry approvals last 12 hours (`approval_ttl_minutes`).
+
+Deliver (mandatory, every run including exit-only and empty cycles): call DeliverArtifacts
+once with the cycle file you wrote, `runtime/metrics.json` and `runtime/news.json`. The
+operator dashboard syncs only delivered artifacts; without them the tickets never reach
+the operator and cannot be approved. Never deliver `account-5829804.json`, kline dumps or
+credential-bearing files. If delivery fails, report it in one line; do not retry silently.
+
+## Exit-only run
+
+Protects open positions between the entry slots. Do the market-state, account, kline and
+metrics steps above (skip `scout due` and the news step), then:
+
+```bash
+python -m scout plan --exit-only --raw runtime/market-raw.json \
+    --account runtime/account-5829804.json --approvals runtime/approvals.json \
+    --out runtime/cycle-<HHMM>.json
+```
+
+No `--slot`: the label defaults to the current ET time, entries are blocked, and only held
+positions are examined. With an active operator mandate the exits are `READY` and the Guard
+executes them on its own exit-only schedule; without one they are `AWAITING_APPROVAL`.
+Write the report even when there is nothing to exit — an empty record list means "no action".
 
 ## Reading the result
 
 | Status | Meaning | Next |
 |---|---|---|
-| `READY` | passed every rule including approval | Guard may execute |
-| `AWAITING_APPROVAL` | failed only R11 | operator runs `python -m scout approve` |
+| `READY` | passed every rule, via a hash-bound approval or an operator exit mandate | Guard may execute |
+| `AWAITING_APPROVAL` | failed only R11 | operator approves in the dashboard or `python -m scout approve` |
 | `REJECTED` | any other rule, e.g. `R2_SIZE`, `R10_EVIDENCE_STALE` | log it, do not retry |
 
 Ticket ids are `P-YYYYMMDD-HHMM-SYMBOL-NN`; re-running the same slot reproduces the same
@@ -98,6 +131,9 @@ ids, which is what makes retries idempotent.
 
 - No order tools. No approval commands. No edits to `config.json`, `watchlist.json`,
   `gate/`, or tests.
+- Never write, edit, or delete `runtime/exit-mandate.json`, and never pass `--mandate ""`
+  to make an exit look authorized. Granting and revoking it is an operator command
+  (`python -m guard.mandate_cli`).
 - Read-only `sim_trade_*` calls only: `sim_trade_cash_info`, `sim_trade_position_list`,
   `sim_trade_history_order_list`, `sim_trade_account_list`.
 - 15:30 ET is exits-only; the planner blocks entries and the report says so.
@@ -108,5 +144,6 @@ ids, which is what makes retries idempotent.
 
 ## Done when
 
-`runtime/cycle-<HHMM>.json` exists, the ticket table was printed unchanged, and the final
-line lists omitted symbols and any failed data source.
+`runtime/cycle-<HHMM>.json` exists, the ticket table was printed unchanged, the cycle plus
+`metrics.json` and `news.json` were handed to DeliverArtifacts (or the failure was
+reported), and the final line lists omitted symbols and any failed data source.

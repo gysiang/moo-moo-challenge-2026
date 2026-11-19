@@ -1,0 +1,225 @@
+{
+  "entries_allowed": true,
+  "generated_at": "2026-11-19T14:46:43.089944+00:00",
+  "records": [
+    {
+      "created_at": "2026-11-19T14:46:43.089944+00:00",
+      "est_cost": 3266.4,
+      "evidence": [
+        {
+          "as_of": "2026-11-19T14:46:10+00:00",
+          "id": "Q-P-20261119-0945-AMZN-01",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        },
+        {
+          "as_of": "2026-11-19T13:43:54+00:00",
+          "id": "N-1005051639",
+          "kind": "news",
+          "source": "\u5feb\u8baf"
+        },
+        {
+          "as_of": "2026-11-19T12:26:00+00:00",
+          "id": "N-1005043742",
+          "kind": "news",
+          "source": "\u5bcc\u9014\u8d44\u8baf"
+        },
+        {
+          "as_of": "2026-11-19T09:38:17+00:00",
+          "id": "N-1005024628",
+          "kind": "news",
+          "source": "MT Newswires"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 272.2,
+      "order_type": "LIMIT",
+      "proposal_hash": "6dac2eabe04eda8da06f77f15f9f7ce40bfe07d2713081560e68f3152e885976",
+      "quantity": 12,
+      "rationale": "SATELLITE_ENTRY: last 272.20, sma20 258.22, sma50 255.53, roc20 +8.71%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "AWAITING_APPROVAL",
+      "symbol": "US.AMZN",
+      "ticket_id": "P-20261119-0945-AMZN-01"
+    },
+    {
+      "created_at": "2026-11-19T14:46:43.089944+00:00",
+      "est_cost": 3264.0,
+      "evidence": [
+        {
+          "as_of": "2026-11-19T14:46:10+00:00",
+          "id": "Q-P-20261119-0945-COST-02",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R10_EVIDENCE_STALE",
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 1088.0,
+      "order_type": "LIMIT",
+      "proposal_hash": "2d480b14651ca84db466e6f869a17c6570589204e85c45c6c132aef3d64b0125",
+      "quantity": 3,
+      "rationale": "SATELLITE_ENTRY: last 1088.00, sma20 1052.20, sma50 982.67, roc20 +6.85%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "REJECTED",
+      "symbol": "US.COST",
+      "ticket_id": "P-20261119-0945-COST-02"
+    },
+    {
+      "created_at": "2026-11-19T14:46:43.089944+00:00",
+      "est_cost": 3341.8,
+      "evidence": [
+        {
+          "as_of": "2026-11-19T14:46:10+00:00",
+          "id": "Q-P-20261119-0945-PG-03",
+          "kind": "quote",
+          "source": "moomoo.quote_cur_kline"
+        }
+      ],
+      "gate": {
+        "checked": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6",
+          "R7",
+          "R8",
+          "R9",
+          "R10",
+          "R11"
+        ],
+        "codes": [
+          "R10_EVIDENCE_STALE",
+          "R11_NO_APPROVAL"
+        ],
+        "passed": false
+      },
+      "limit_price": 167.09,
+      "order_type": "LIMIT",
+      "proposal_hash": "ab41784fab83366f045fca5e9e108d013a775a3661d49b5f2f97004479020b9d",
+      "quantity": 20,
+      "rationale": "SATELLITE_ENTRY: last 167.09, sma20 165.53, sma50 156.35, roc20 +0.91%",
+      "side": "BUY",
+      "sleeve": "satellite",
+      "status": "REJECTED",
+      "symbol": "US.PG",
+      "ticket_id": "P-20261119-0945-PG-03"
+    }
+  ],
+  "skipped": [
+    {
+      "reason": "CORE_TREND_DOWN",
+      "symbol": "US.SPY"
+    },
+    {
+      "reason": "CORE_TREND_DOWN",
+      "symbol": "US.QQQ"
+    },
+    {
+      "reason": "CORE_TREND_DOWN",
+      "symbol": "US.IWM"
+    },
+    {
+      "reason": "ADD_NOT_PROFITABLE",
+      "symbol": "US.AAPL"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.MSFT"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.NVDA"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.GOOGL"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.META"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.AVGO"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.TSLA"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.JPM"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.V"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.UNH"
+    },
+    {
+      "reason": "TREND_DOWN",
+      "symbol": "US.XOM"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.LLY"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.HD"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.JNJ"
+    },
+    {
+      "reason": "NOT_NEAR_HIGH",
+      "symbol": "US.WMT"
+    }
+  ],
+  "slot": "09:45",
+  "trading_day": true
+}

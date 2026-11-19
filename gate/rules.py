@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from gate.config import Limits
+from gate.mandate import ExitMandate
 from gate.models import (
     AccountState,
     GateResult,
@@ -39,6 +40,7 @@ def evaluate(
     instrument: Optional[Instrument],
     state: AccountState,
     limits: Limits,
+    mandate: Optional[ExitMandate] = None,
 ) -> GateResult:
     validate_proposal(proposal)
     if state.equity <= 0:
@@ -55,7 +57,7 @@ def evaluate(
         ("R8", _r8_daily_stop(proposal, state, limits)),
         ("R9", _r9_duplicate(proposal, state)),
         ("R10", _r10_evidence(proposal, state, limits)),
-        ("R11", _r11_approval(proposal, state, limits)),
+        ("R11", _r11_approval(proposal, state, limits, mandate)),
     ]
     rejections = tuple(r for _, r in checks if r is not None)
     return GateResult(
@@ -218,8 +220,13 @@ def _r10_evidence(
 
 
 def _r11_approval(
-    proposal: Proposal, state: AccountState, limits: Limits
+    proposal: Proposal,
+    state: AccountState,
+    limits: Limits,
+    mandate: Optional[ExitMandate] = None,
 ) -> Optional[Rejection]:
+    if mandate is not None and proposal.side == "SELL" and proposal.exit_reason:
+        return mandate.covers(proposal, state)
     approval = state.approval
     if approval is None:
         return Rejection("R11_NO_APPROVAL", "no approval on record")

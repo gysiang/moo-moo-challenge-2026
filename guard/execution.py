@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
-from gate import GateResult, Instrument, Proposal, evaluate
+from gate import ExitMandate, GateResult, Instrument, Proposal, evaluate
 from gate.config import Limits
 from gate.models import AccountState
 
@@ -50,11 +50,19 @@ class KillSwitchReport:
 
 
 class Guard:
-    def __init__(self, broker: Broker, limits: Limits, log: EventLog) -> None:
+    def __init__(
+        self,
+        broker: Broker,
+        limits: Limits,
+        log: EventLog,
+        mandate: Optional[ExitMandate] = None,
+    ) -> None:
         self._broker = broker
         self._limits = limits
         self._log = log
+        self._mandate = mandate
         self._order_by_ticket: dict[str, str] = {}
+        self._mandated_exits = 0
         self._kill_engaged = False
         self._halted = False
 
@@ -83,7 +91,13 @@ class Guard:
         if self._halted:
             return self._blocked(proposal, "HALTED")
 
-        gate = evaluate(proposal, instrument, state, self._limits)
+        gate = evaluate(
+            proposal,
+            instrument,
+            replace(state, mandated_exits_this_run=self._mandated_exits),
+            self._limits,
+            self._mandate,
+        )
         if not gate.passed:
             failure = gate.first_failure
             self._log.emit(
@@ -121,6 +135,8 @@ class Guard:
             return self._halt(proposal, f"broker status {ack.status}")
 
         self._order_by_ticket[proposal.ticket_id] = ack.order_id
+        if self._mandate is not None and proposal.exit_reason:
+            self._mandated_exits += 1
         self._log.emit(
             "ORDER_SUBMITTED",
             ticket_id=proposal.ticket_id,
@@ -129,6 +145,7 @@ class Guard:
             side=proposal.side,
             quantity=proposal.quantity,
             limit_price=round(proposal.limit_price, 6),
+            exit_reason=proposal.exit_reason,
         )
         return GuardResult(ACCEPTED, ack.order_id, gate)
 

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from gate import Approval, Evidence, load_limits
+from gate import Approval, Evidence, load_limits, load_mandate
 from scout.account import load_account, load_approvals, parse_time, save_approval
 from scout.cycle import Scout
 from scout.marketdata import build_snapshot, load_raw, write_snapshot
@@ -40,16 +40,28 @@ def _build_scout(args: argparse.Namespace) -> Scout:
     limits = load_limits(Path(args.config))
     settings = load_strategy(Path(args.config))
     watchlist = load_watchlist(Path(args.watchlist))
-    return Scout(limits, settings, watchlist)
+    try:
+        mandate = load_mandate(args.mandate) if args.mandate else None
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+    return Scout(limits, settings, watchlist, mandate)
 
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
-    snapshot = write_snapshot(load_raw(Path(args.raw)), Path(args.out))
+    settings = load_strategy(Path(args.config))
+    snapshot = write_snapshot(
+        load_raw(Path(args.raw)),
+        Path(args.out),
+        ema_fast=settings.trend_fast_ema,
+        ema_slow=settings.trend_slow_ema,
+    )
     print(f"{len(snapshot.metrics)} symbols -> {args.out}")
     for symbol, metrics in sorted(snapshot.metrics.items()):
         print(
             f"  {symbol:<9} last {metrics.last_price:>10.2f}  "
-            f"sma20 {metrics.sma20:>9.2f}  sma50 {metrics.sma50:>9.2f}  "
+            f"ema{settings.trend_fast_ema} {metrics.ema_fast:>9.2f}  "
+            f"ema{settings.trend_slow_ema} {metrics.ema_slow:>9.2f}  "
+            f"sma50 {metrics.sma50:>9.2f}  "
             f"roc20 {metrics.roc20:>+7.2%}  trend_up={metrics.trend_up}"
         )
     return 0
@@ -57,17 +69,28 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
 
 def cmd_plan(args: argparse.Namespace) -> int:
     now = parse_time(args.now) if args.now else datetime.now(timezone.utc)
+    slot = args.slot
+    if args.exit_only:
+        slot = slot or f"{eastern(now):%H:%M}"
+    elif not slot:
+        raise SystemExit("--slot is required unless --exit-only is set")
     scout = _build_scout(args)
-    snapshot = build_snapshot(load_raw(Path(args.raw)))
+    settings = load_strategy(Path(args.config))
+    snapshot = build_snapshot(
+        load_raw(Path(args.raw)),
+        ema_fast=settings.trend_fast_ema,
+        ema_slow=settings.trend_slow_ema,
+    )
     account = load_account(Path(args.account), now)
     approvals = load_approvals(Path(args.approvals) if args.approvals else None)
     report = scout.run(
-        slot=args.slot,
+        slot=slot,
         now=now,
         snapshot=snapshot,
         account=account,
         approvals=approvals,
         news=_load_news(Path(args.news) if args.news else None),
+        allow_entries=False if args.exit_only else None,
     )
 
     payload = report.to_dict()
@@ -76,7 +99,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
     local = eastern(now)
     print(f"slot {report.slot} | now {local:%Y-%m-%d %H:%M %Z} | trading_day={report.trading_day} "
-          f"| entries_allowed={report.entries_allowed}")
+          f"| entries_allowed={report.entries_allowed} "
+          f"| exit_mandate={report.mandate_id or 'none'}")
     for record in report.records:
         proposal = record.proposal
         codes = ",".join(record.gate.codes) or "ok"
@@ -109,7 +133,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         ticket_id=args.ticket,
         proposal_hash=record["proposal_hash"],
         approved_at=now,
-        expires_at=now + timedelta(minutes=args.ttl_minutes),
+        expires_at=now + timedelta(minutes=_approval_ttl_minutes(args)),
     )
     save_approval(Path(args.approvals), approval)
     print(
@@ -117,6 +141,12 @@ def cmd_approve(args: argparse.Namespace) -> int:
         f"-> {args.approvals}"
     )
     return 0
+
+
+def _approval_ttl_minutes(args: argparse.Namespace) -> float:
+    if args.ttl_minutes is not None:
+        return float(args.ttl_minutes)
+    return load_limits(Path(args.config)).approval_ttl.total_seconds() / 60
 
 
 def cmd_due(args: argparse.Namespace) -> int:
@@ -143,20 +173,36 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.set_defaults(func=cmd_snapshot)
 
     plan = sub.add_parser("plan", parents=[common], help="run one Scout cycle")
-    plan.add_argument("--slot", required=True, choices=SLOTS)
+    plan.add_argument("--slot", choices=SLOTS, help="required unless --exit-only is set")
+    plan.add_argument(
+        "--exit-only",
+        action="store_true",
+        help="risk-reducing exits only; entries are blocked and the slot defaults to now (ET)",
+    )
     plan.add_argument("--now", help="ISO-8601 timestamp; defaults to now")
     plan.add_argument("--raw", required=True, help="klines snapshot input")
     plan.add_argument("--account", required=True, help="account state JSON")
     plan.add_argument("--news", help="optional news evidence JSON")
     plan.add_argument("--approvals", help="optional approvals JSON")
+    plan.add_argument(
+        "--mandate",
+        default="runtime/exit-mandate.json",
+        help="operator exit mandate; pass an empty string to disable",
+    )
     plan.add_argument("--out", required=True)
     plan.set_defaults(func=cmd_plan)
 
     approve = sub.add_parser("approve", help="record human approval for a ticket")
+    approve.add_argument("--config", default=str(DEFAULT_CONFIG))
     approve.add_argument("--cycle", required=True, help="cycle report JSON")
     approve.add_argument("--ticket", required=True)
     approve.add_argument("--approvals", default="runtime/approvals.json")
-    approve.add_argument("--ttl-minutes", type=int, default=30)
+    approve.add_argument(
+        "--ttl-minutes",
+        type=int,
+        default=None,
+        help="override the approval TTL from config.json",
+    )
     approve.add_argument("--now")
     approve.add_argument("--force", action="store_true")
     approve.set_defaults(func=cmd_approve)

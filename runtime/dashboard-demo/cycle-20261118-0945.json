@@ -34,7 +34,8 @@
       "limit_price": 181.2,
       "est_cost": 3624.0,
       "proposal_hash": "c3d5e7f9a1b3c5d7e9f1a3b5c7d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5",
-      "rationale": "EXIT_50DMA_BREAK: last 181.20 below sma50 191.40, roc20 -6.12%",
+      "rationale": "EXIT_BELOW_SMA50: last 181.20 below sma50 191.40, roc20 -6.12%",
+      "exit_reason": "EXIT_BELOW_SMA50",
       "evidence": [
         {"id": "Q-P-20261118-0945-NVDA-02", "kind": "quote", "as_of": "2026-11-18T14:45:00+00:00", "source": "moomoo.quote_cur_kline"}
       ],

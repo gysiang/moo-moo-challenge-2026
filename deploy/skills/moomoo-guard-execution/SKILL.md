@@ -1,6 +1,6 @@
 ---
 name: moomoo-guard-execution
-description: Execute human-approved Moomoo paper orders on account 5829804 through the deterministic gate - re-run R1-R11 with guard.bridge_cli, submit the exact sim_trade_input_order arguments, record the broker reply, and halt on any unconfirmed outcome. Use when the operator supplies approved ticket ids. Never originates trades and never retries a submit.
+description: Execute authorized Moomoo paper orders on account 5829804 through the deterministic gate - re-run R1-R11 with guard.bridge_cli, submit the exact sim_trade_input_order arguments, record the broker reply, and halt on any unconfirmed outcome. Use when the operator supplies approved ticket ids, or on a scheduled exit-only run while a valid operator exit mandate is on disk. Never originates trades and never retries a submit.
 ---
 
 # Moomoo Guard execution
@@ -14,9 +14,14 @@ local checkout otherwise).
 ## Inputs
 
 - `runtime/cycle-<HHMM>.json` — Scout report containing the ticket.
-- `runtime/approvals.json` — written by the human (`python -m scout approve`).
+- `runtime/approvals.json` — written by the human (`python -m scout approve` or the dashboard).
+- `runtime/exit-mandate.json` — optional operator-signed mandate for full-position risk-reducing
+  exits. Read it with `python -m guard.mandate_cli show`; never write or edit it.
 - `runtime/account-5829804.json`, `runtime/metrics.json` — current account and market facts.
-- The ticket id from the operator's task. Never derive one yourself.
+  All three snapshots (cycle `generated_at`, account `as_of`, metrics `as_of`) must be less
+  than 30 minutes old; otherwise stop and report "stale snapshot".
+- The ticket id from the operator's task, or the READY SELL records of an exit-only run.
+  Never derive a ticket yourself.
 
 ## Step 1 — re-run the gate
 
@@ -27,8 +32,12 @@ python -m guard.bridge_cli prepare --cycle runtime/cycle-0945.json --ticket <T> 
 ```
 
 Exit `0` + `"status": "READY"` → continue. Exit `2` + `"status": "REJECTED"` → print the
-codes (`R11_NO_APPROVAL` for a missing/expired/edited ticket, `R4_FUNDS`, `R5_CONCENTRATION`,
-`R9_DUPLICATE`, …) and stop for that ticket.
+codes (`R11_NO_APPROVAL` for a missing/expired/edited ticket or an exit the mandate does not
+cover, `R4_FUNDS`, `R5_CONCENTRATION`, `R9_DUPLICATE`, …) and stop for that ticket.
+
+A READY plan names its authorization: `"authorization": "APPROVAL"` (hash-bound human
+approval) or `"authorization": "MANDATE"` plus `"mandate_id"` (operator exit mandate). It
+must match what started the run.
 
 The plan contains the exact MCP call:
 
@@ -82,6 +91,26 @@ python -m guard.bridge_cli kill --log runtime/guard-events.jsonl --reason "<why>
 Latched: no further submission this run. `resume` is an operator command:
 `python -m guard.bridge_cli resume --log runtime/guard-events.jsonl --note "<reconciled how>"`.
 
+## Scheduled exit-only run
+
+The only scheduled run Guard accepts, so a stop-loss or SMA50 break is acted on while the
+operator is asleep.
+
+1. `python -m guard.mandate_cli show` — no mandate, expired mandate, or hash mismatch →
+   submit nothing and report that exits need per-ticket approval.
+2. Newest `runtime/cycle-*.json`; stop with "stale snapshot" if cycle `generated_at`,
+   account `as_of`, or `metrics.as_of` is older than 30 minutes. Never fetch market data
+   yourself to refresh it.
+3. Take only `side: "SELL"` records with a non-empty `exit_reason` and `status: "READY"`.
+   Ignore BUYs, partial quantities, and `AWAITING_APPROVAL`.
+4. Steps 1-4 per ticket in report order, at most `max_exits_per_run`. `prepare` counts
+   exits already submitted for this run key in `runtime/guard-events.jsonl` and rejects
+   the rest with `R11_NO_APPROVAL`; report those as skipped, never as failures to work
+   around.
+5. Report the mandate id and how many exits it allowed.
+
+An unconfirmed broker outcome still halts everything, mandated exits included.
+
 ## Rules
 
 - Paper account `5829804`, market `100`. Any other account id → refuse.
@@ -89,6 +118,10 @@ Latched: no further submission this run. `resume` is an operator command:
   `qdr:<ticket>` note and the ticket id, not from retrying.
 - Broker vs plan disagreement (cash, position) → stop, log, report.
 - The event log is append-only; never truncate or rewrite `runtime/guard-events.jsonl`.
+- Never grant, extend, edit, or revoke `runtime/exit-mandate.json`; `mandate_cli grant`
+  and `revoke` are operator commands. `show` only.
+- Entries always need a hash-bound human approval. A mandate never covers a BUY, a partial
+  trim, or a new position. Any other scheduled run (entries, adds, catch-up) → refuse.
 
 ## Done when
 

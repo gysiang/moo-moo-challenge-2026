@@ -1,0 +1,477 @@
+{
+ "account_as_of": "2026-11-19T14:46:10+00:00",
+ "account_id": "5829804",
+ "approvals": {
+  "P-20261118-0945-AAPL-06": {
+   "approved_at": "2026-11-18T16:10:21.503028+00:00",
+   "expires_at": "2026-11-18T16:40:21.503028+00:00",
+   "proposal_hash": "83374281b7fda11e9ac69531e3dbd1795d6f2ba836e4e56065e22e153f6543f1"
+  },
+  "P-20261118-0945-JNJ-04": {
+   "approved_at": "2026-11-18T16:13:06.341309+00:00",
+   "expires_at": "2026-11-18T16:43:06.341309+00:00",
+   "proposal_hash": "69c3abc576dd83ac540ea2c141e7831df7b1659117ad26aecef7dfc8142b3ef7"
+  },
+  "P-20261118-0945-LLY-01": {
+   "approved_at": "2026-11-18T16:12:29.005458+00:00",
+   "expires_at": "2026-11-18T16:42:29.005458+00:00",
+   "proposal_hash": "4dbecf01d72056cfd0843c8b5dfc30ef52e0436c56c6e8dcb2cd67142e4a42a7"
+  },
+  "P-20261118-0945-PG-03": {
+   "approved_at": "2026-11-18T16:11:16.805850+00:00",
+   "expires_at": "2026-11-18T16:41:16.805850+00:00",
+   "proposal_hash": "5843c2ceebf151fb11f3797720e100fce0e006fa7775c7a018be72a4ba00747c"
+  }
+ },
+ "as_of": "2026-11-19T15:20:21.831128+00:00",
+ "counts": {
+  "approved": 0,
+  "awaiting": 1,
+  "operator_rejected": 0,
+  "ready": 0,
+  "rejected": 4
+ },
+ "decisions": [
+  {
+   "approval_expires_at": null,
+   "cycle": "cycle-20261119-0945.json",
+   "est_cost": 3341.8,
+   "evidence": [
+    {
+     "as_of": "2026-11-19T14:46:10+00:00",
+     "id": "Q-P-20261119-0945-PG-03",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R10_EVIDENCE_STALE",
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-19T14:46:43.089944+00:00",
+   "guard_state": null,
+   "guard_triggered_at": null,
+   "limit_price": 167.09,
+   "quantity": 20,
+   "rationale": "SATELLITE_ENTRY: last 167.09, sma20 165.53, sma50 156.35, roc20 +0.91%",
+   "raw_status": "REJECTED",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "REJECTED",
+   "symbol": "US.PG",
+   "ticket_id": "P-20261119-0945-PG-03"
+  },
+  {
+   "approval_expires_at": null,
+   "cycle": "cycle-20261119-0945.json",
+   "est_cost": 3264.0,
+   "evidence": [
+    {
+     "as_of": "2026-11-19T14:46:10+00:00",
+     "id": "Q-P-20261119-0945-COST-02",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R10_EVIDENCE_STALE",
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-19T14:46:43.089944+00:00",
+   "guard_state": null,
+   "guard_triggered_at": null,
+   "limit_price": 1088.0,
+   "quantity": 3,
+   "rationale": "SATELLITE_ENTRY: last 1088.00, sma20 1052.20, sma50 982.67, roc20 +6.85%",
+   "raw_status": "REJECTED",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "REJECTED",
+   "symbol": "US.COST",
+   "ticket_id": "P-20261119-0945-COST-02"
+  },
+  {
+   "approval_expires_at": null,
+   "cycle": "cycle-20261119-0945.json",
+   "est_cost": 3266.4,
+   "evidence": [
+    {
+     "as_of": "2026-11-19T14:46:10+00:00",
+     "id": "Q-P-20261119-0945-AMZN-01",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    },
+    {
+     "as_of": "2026-11-19T13:43:54+00:00",
+     "id": "N-1005051639",
+     "kind": "news",
+     "source": "\u5feb\u8baf"
+    },
+    {
+     "as_of": "2026-11-19T12:26:00+00:00",
+     "id": "N-1005043742",
+     "kind": "news",
+     "source": "\u5bcc\u9014\u8d44\u8baf"
+    },
+    {
+     "as_of": "2026-11-19T09:38:17+00:00",
+     "id": "N-1005024628",
+     "kind": "news",
+     "source": "MT Newswires"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-19T14:46:43.089944+00:00",
+   "guard_state": null,
+   "guard_triggered_at": null,
+   "limit_price": 272.2,
+   "quantity": 12,
+   "rationale": "SATELLITE_ENTRY: last 272.20, sma20 258.22, sma50 255.53, roc20 +8.71%",
+   "raw_status": "AWAITING_APPROVAL",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "AWAITING_APPROVAL",
+   "symbol": "US.AMZN",
+   "ticket_id": "P-20261119-0945-AMZN-01"
+  },
+  {
+   "approval_expires_at": null,
+   "cycle": "cycle-20261118-0945.json",
+   "est_cost": 3387.69,
+   "evidence": [
+    {
+     "as_of": "2026-11-18T14:48:23+00:00",
+     "id": "Q-P-20261118-0945-WMT-05",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R10_EVIDENCE_STALE",
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-18T14:49:53+00:00",
+   "guard_state": null,
+   "guard_triggered_at": null,
+   "limit_price": 125.47,
+   "quantity": 27,
+   "rationale": "SATELLITE_ENTRY: last 125.47, sma20 124.58, sma50 115.79, roc20 +6.51%",
+   "raw_status": "REJECTED",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "REJECTED",
+   "symbol": "US.WMT",
+   "ticket_id": "P-20261118-0945-WMT-05"
+  },
+  {
+   "approval_expires_at": "2026-11-18T16:41:16.805850+00:00",
+   "cycle": "cycle-20261118-0945.json",
+   "est_cost": 3417.6,
+   "evidence": [
+    {
+     "as_of": "2026-11-18T14:48:23+00:00",
+     "id": "Q-P-20261118-0945-PG-03",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    },
+    {
+     "as_of": "2026-11-18T14:43:00+00:00",
+     "id": "N-1004918578",
+     "kind": "news",
+     "source": "\u9053\u743c\u65af"
+    },
+    {
+     "as_of": "2026-11-18T11:32:00+00:00",
+     "id": "N-1004899462",
+     "kind": "news",
+     "source": "\u5bcc\u9014\u8d44\u8baf"
+    },
+    {
+     "as_of": "2026-11-18T10:35:00+00:00",
+     "id": "N-1004893295",
+     "kind": "news",
+     "source": "MT Newswires"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-18T14:49:53+00:00",
+   "guard_state": "accepted",
+   "guard_triggered_at": "2026-11-18T16:11:16.807359+00:00",
+   "limit_price": 170.88,
+   "quantity": 20,
+   "rationale": "SATELLITE_ENTRY: last 170.88, sma20 165.49, sma50 155.88, roc20 +8.95%",
+   "raw_status": "AWAITING_APPROVAL",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "APPROVAL_EXPIRED",
+   "symbol": "US.PG",
+   "ticket_id": "P-20261118-0945-PG-03"
+  },
+  {
+   "approval_expires_at": "2026-11-18T16:42:29.005458+00:00",
+   "cycle": "cycle-20261118-0945.json",
+   "est_cost": 2819.7,
+   "evidence": [
+    {
+     "as_of": "2026-11-18T14:48:23+00:00",
+     "id": "Q-P-20261118-0945-LLY-01",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    },
+    {
+     "as_of": "2026-11-17T15:31:00+00:00",
+     "id": "N-1004780017",
+     "kind": "news",
+     "source": "\u5bcc\u9014\u8d44\u8baf"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-18T14:49:53+00:00",
+   "guard_state": "accepted",
+   "guard_triggered_at": "2026-11-18T16:12:29.006888+00:00",
+   "limit_price": 1409.85,
+   "quantity": 2,
+   "rationale": "SATELLITE_ENTRY: last 1409.85, sma20 1379.36, sma50 1258.27, roc20 +10.95%",
+   "raw_status": "AWAITING_APPROVAL",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "APPROVAL_EXPIRED",
+   "symbol": "US.LLY",
+   "ticket_id": "P-20261118-0945-LLY-01"
+  },
+  {
+   "approval_expires_at": "2026-11-18T16:43:06.341309+00:00",
+   "cycle": "cycle-20261118-0945.json",
+   "est_cost": 3316.44,
+   "evidence": [
+    {
+     "as_of": "2026-11-18T14:48:23+00:00",
+     "id": "Q-P-20261118-0945-JNJ-04",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    },
+    {
+     "as_of": "2026-11-18T02:31:00+00:00",
+     "id": "N-1004834619",
+     "kind": "news",
+     "source": "\u5bcc\u9014\u8d44\u8baf"
+    },
+    {
+     "as_of": "2026-11-17T16:35:14+00:00",
+     "id": "N-1004785601",
+     "kind": "news",
+     "source": "MT Newswires"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-18T14:49:53+00:00",
+   "guard_state": "accepted",
+   "guard_triggered_at": "2026-11-18T16:13:06.342732+00:00",
+   "limit_price": 276.37,
+   "quantity": 12,
+   "rationale": "SATELLITE_ENTRY: last 276.37, sma20 274.88, sma50 267.39, roc20 +7.21%",
+   "raw_status": "AWAITING_APPROVAL",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "APPROVAL_EXPIRED",
+   "symbol": "US.JNJ",
+   "ticket_id": "P-20261118-0945-JNJ-04"
+  },
+  {
+   "approval_expires_at": null,
+   "cycle": "cycle-20261118-0945.json",
+   "est_cost": 3305.07,
+   "evidence": [
+    {
+     "as_of": "2026-11-18T14:48:23+00:00",
+     "id": "Q-P-20261118-0945-COST-02",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R10_EVIDENCE_STALE",
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-18T14:49:53+00:00",
+   "guard_state": null,
+   "guard_triggered_at": null,
+   "limit_price": 1101.69,
+   "quantity": 3,
+   "rationale": "SATELLITE_ENTRY: last 1101.69, sma20 1048.96, sma50 979.06, roc20 +10.36%",
+   "raw_status": "REJECTED",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "REJECTED",
+   "symbol": "US.COST",
+   "ticket_id": "P-20261118-0945-COST-02"
+  },
+  {
+   "approval_expires_at": "2026-11-18T16:40:21.503028+00:00",
+   "cycle": "cycle-20261118-0945.json",
+   "est_cost": 3193.47,
+   "evidence": [
+    {
+     "as_of": "2026-11-18T14:48:23+00:00",
+     "id": "Q-P-20261118-0945-AAPL-06",
+     "kind": "quote",
+     "source": "moomoo.quote_cur_kline"
+    },
+    {
+     "as_of": "2026-11-18T14:23:39+00:00",
+     "id": "N-1004916400",
+     "kind": "news",
+     "source": "Benzinga"
+    },
+    {
+     "as_of": "2026-11-18T13:39:52+00:00",
+     "id": "N-1004912220",
+     "kind": "news",
+     "source": "\u73af\u7403\u5e02\u573a\u64ad\u62a5"
+    },
+    {
+     "as_of": "2026-11-18T12:13:01+00:00",
+     "id": "N-1004903732",
+     "kind": "news",
+     "source": "\u683c\u9686\u6c47"
+    }
+   ],
+   "exit_reason": "",
+   "gate_codes": [
+    "R11_NO_APPROVAL"
+   ],
+   "generated_at": "2026-11-18T14:49:53+00:00",
+   "guard_state": "accepted",
+   "guard_triggered_at": "2026-11-18T16:10:21.504497+00:00",
+   "limit_price": 354.83,
+   "quantity": 9,
+   "rationale": "SATELLITE_ENTRY: last 354.83, sma20 347.80, sma50 341.20, roc20 +3.15%",
+   "raw_status": "AWAITING_APPROVAL",
+   "rejected_at": null,
+   "rejection_reason": null,
+   "side": "BUY",
+   "sleeve": "satellite",
+   "slot": "09:45",
+   "status": "APPROVAL_EXPIRED",
+   "symbol": "US.AAPL",
+   "ticket_id": "P-20261118-0945-AAPL-06"
+  }
+ ],
+ "demo": false,
+ "equity_series": [
+  {
+   "equity": 100000.0,
+   "t": "2026-11-18T15:07:19.441237+00:00"
+  },
+  {
+   "equity": 99997.741,
+   "t": "2026-11-18T16:25:45.035236+00:00"
+  }
+ ],
+ "exit_mandate": {
+  "account_id": "5829804",
+  "active": true,
+  "allowed_reasons": [
+   "EXIT_BELOW_SMA50",
+   "EXIT_CORE_BELOW_SMA50",
+   "EXIT_STOP_LOSS",
+   "EXIT_TREND_CROSS"
+  ],
+  "expires_at": "2026-11-26T07:16:23.312896+00:00",
+  "granted_at": "2026-11-19T07:16:23.312896+00:00",
+  "mandate_id": "M-5829804-20261119071623",
+  "max_exits_per_run": 6
+ },
+ "guard": {
+  "events": 4,
+  "halted": true,
+  "kill_switch": false
+ },
+ "has_snapshot": true,
+ "kpi": {
+  "baseline": 100000.0,
+  "cash": 96817.64,
+  "day_pnl_pct": -2.259000000004452e-05,
+  "drawdown_pct": -2.259000000004452e-05,
+  "equity": 99997.74,
+  "market_value": 3180.24,
+  "max_drawdown_pct": -2.259000000004452e-05,
+  "orders_limit": 20,
+  "orders_used": 1,
+  "peak_equity": 100000.0,
+  "positions_limit": 12,
+  "positions_used": 1,
+  "total_pnl": -2.26,
+  "total_pnl_pct": -2.259000000004452e-05
+ },
+ "limits": {
+  "approval_ttl_minutes": 720,
+  "guard_max_snapshot_age_minutes": 30,
+  "max_orders_per_day": 20,
+  "max_positions": 12,
+  "max_single_name_pct": 0.4
+ },
+ "market": {
+  "closes_at": "2026-11-19T16:00:00-05:00",
+  "early_close": false,
+  "et_date": "2026-11-19",
+  "next_open": null,
+  "reason": "regular session",
+  "session_close": "16:00",
+  "session_open": "09:30",
+  "state": "OPEN",
+  "trading_day": true
+ },
+ "open_orders": [],
+ "positions": [
+  {
+   "average_cost": 353.49,
+   "market_value": 3180.24,
+   "quantity": 9,
+   "symbol": "US.AAPL",
+   "unrealized": -1.13,
+   "unrealized_pct": -0.00035644976038655456,
+   "weight": 0.03180311843244539
+  }
+ ]
+}

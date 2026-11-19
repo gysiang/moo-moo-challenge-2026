@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en" data-static="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moomoo paper · operator dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <div>
+      <div class="brand-title">Moomoo × Qoder</div>
+      <div class="brand-sub">paper account <span id="account-id">5829804</span> · <span id="mode">LIVE</span></div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="session" id="session" data-state="unknown" role="status" aria-live="polite">
+      <span class="session-dot" aria-hidden="true"></span>
+      <span class="session-copy">
+        <span class="session-state" id="session-state">US market</span>
+        <span class="session-detail" id="session-detail">checking session…</span>
+      </span>
+    </div>
+    <div class="stamp">as of <span id="as-of">—</span></div>
+    <button id="refresh" class="ghost">Refresh</button>
+  </div>
+</header>
+
+<main>
+  <section class="kpis" id="kpis"></section>
+
+  <section class="card chart-card">
+    <div class="card-head">
+      <h2>Equity</h2>
+      <div class="legend" id="equity-legend"></div>
+    </div>
+    <div id="chart" class="chart"></div>
+    <div class="chart-foot" id="chart-foot"></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="card-head"><h2>Positions</h2><span class="muted" id="positions-count"></span></div>
+      <div class="table-wrap"><table id="positions"></table></div>
+    </div>
+    <div class="stack">
+      <div class="card">
+        <div class="card-head"><h2>Open orders</h2><span class="muted" id="orders-count"></span></div>
+        <div class="table-wrap"><table id="orders"></table></div>
+      </div>
+      <div class="card guard-card">
+        <div class="card-head"><h2>Guard</h2></div>
+        <div id="guard"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Agent decision log</h2>
+      <div class="legend" id="decision-counts"></div>
+    </div>
+    <div class="table-wrap"><table id="decisions"></table></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Cloud agents</h2>
+      <span class="muted" id="cloud-count">—</span>
+    </div>
+    <div class="table-wrap"><table id="cloud"></table></div>
+  </section>
+
+<footer>
+    Read-only snapshot of the paper-account operator dashboard. Approvals and Guard runs happen
+    only in the local dashboard; this copy has no broker access and no write endpoints.
+  </footer>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

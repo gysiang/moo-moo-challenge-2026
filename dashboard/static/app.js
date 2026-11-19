@@ -5,16 +5,52 @@ const pct = (v, digits = 2) => (v === null || v === undefined ? "—" : (v * 100
 const signed = (v) => (v === null || v === undefined ? "—" : (v > 0 ? "+" : "") + v.toFixed(2));
 const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const clock = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
-const shortClock = (iso) =>
-  iso
-    ? new Date(iso).toLocaleString(undefined, {
+const ET_ZONE = "America/New_York";
+const etDate = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+const clock = (iso) => {
+  const d = etDate(iso);
+  return d
+    ? d.toLocaleString("en-US", {
+        timeZone: ET_ZONE,
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      }) + " ET"
+    : "—";
+};
+const shortClock = (iso) => {
+  const d = etDate(iso);
+  return d
+    ? d.toLocaleString("en-US", {
+        timeZone: ET_ZONE,
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
+        hour12: false,
       })
     : "—";
+};
+const etTime = (iso) => {
+  const d = etDate(iso);
+  return d
+    ? d.toLocaleTimeString("en-GB", { timeZone: ET_ZONE, hour: "2-digit", minute: "2-digit", hour12: false })
+    : "—";
+};
+const etDay = (iso) => {
+  const d = etDate(iso);
+  return d
+    ? d.toLocaleDateString("en-US", { timeZone: ET_ZONE, weekday: "short", month: "short", day: "numeric" })
+    : "—";
+};
 
 let state = null;
 let openDetail = null;
@@ -22,6 +58,9 @@ let busy = false;
 let cloudState = null;
 let cloudOpen = null;
 const cloudEvents = new Map();
+const STATIC_MODE = document.documentElement.dataset.static === "1";
+const STATE_URL = STATIC_MODE ? "state.json" : "/api/state";
+const CLOUD_URL = STATIC_MODE ? "cloud.json" : "/api/cloud/sessions?limit=12";
 
 function toast(message, bad = false) {
   const el = document.getElementById("toast");
@@ -148,6 +187,14 @@ function renderGuard(s) {
   const banner = g.halted || g.kill_switch
     ? `<div class="banner bad">order flow latched — ${g.kill_switch ? "kill switch" : "halt"}${g.halted && g.kill_switch ? " + halt" : ""}</div>`
     : `<div class="banner ok">order flow normal</div>`;
+  const m = s.exit_mandate;
+  const mandate = !m
+    ? `<div class="line"><span>exit mandate</span><span>none — exits need approval</span></div>`
+    : m.error
+    ? `<div class="banner bad">exit mandate unreadable — ${esc(m.error)}</div>`
+    : `<div class="line"><span>exit mandate</span><span>${m.active ? "active" : "expired"} · ${esc(m.mandate_id)}</span></div>
+    <div class="line"><span>mandate expires</span><span>${clock(m.expires_at)}</span></div>
+    <div class="line"><span>max exits / run</span><span>${m.max_exits_per_run}</span></div>`;
   document.getElementById("guard").innerHTML = `
     ${banner}
     <div class="line"><span>events</span><span>${g.events ?? 0}</span></div>
@@ -155,6 +202,7 @@ function renderGuard(s) {
     <div class="line"><span>kill switch</span><span>${g.kill_switch ? "yes" : "no"}</span></div>
     <div class="line"><span>approvals valid</span><span>${Object.keys(s.approvals || {}).length}</span></div>
     <div class="line"><span>operator rejects</span><span>${(s.counts || {}).operator_rejected ?? 0}</span></div>
+    ${mandate}
     <div class="line"><span>execution</span><span>${(s.guard_link || {}).configured ? esc(s.guard_link.session_id) : "manual Guard run only"}</span></div>`;
 }
 
@@ -170,6 +218,8 @@ function renderDecisions(s) {
   const rows = s.decisions || [];
   const c = s.counts || {};
   const guardOn = (s.guard_link || {}).configured;
+  const mandate = s.exit_mandate || null;
+  const mandateOn = Boolean(mandate && mandate.active && !mandate.error);
   document.getElementById("decision-counts").innerHTML = `
     <span>awaiting ${c.awaiting ?? 0}</span><span>approved ${c.approved ?? 0}</span>
     <span>rejected ${c.rejected ?? 0}</span><span>operator rejected ${c.operator_rejected ?? 0}</span>
@@ -183,15 +233,20 @@ function renderDecisions(s) {
     const key = `${d.cycle}|${d.ticket_id}`;
     const codes = (d.gate_codes || []).join(", ") || "ok";
     const short = (d.gate_codes || []).map((c) => String(c).split("_")[0]).join(", ") || "ok";
-    const canApprove = d.status === "AWAITING_APPROVAL";
-    const canReject = d.status === "AWAITING_APPROVAL";
+    const canApprove = !STATIC_MODE && d.status === "AWAITING_APPROVAL";
+    const canReject = !STATIC_MODE && d.status === "AWAITING_APPROVAL";
     const canRunGuard =
-      d.status === "APPROVED" && guardOn && (!d.guard_state || d.guard_state === "rejected");
+      !STATIC_MODE && d.status === "APPROVED" && guardOn && (!d.guard_state || d.guard_state === "rejected");
+    const canRunExit =
+      !STATIC_MODE && guardOn && mandateOn && d.status === "READY" &&
+      d.side === "SELL" && d.exit_reason && (!d.guard_state || d.guard_state === "rejected");
     const action = [
       canApprove
         ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Approve${guardOn ? " + Guard" : ""}</button>`
         : canRunGuard
         ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Run Guard</button>`
+        : canRunExit
+        ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Execute exit</button>`
         : "",
       canReject
         ? `<button class="ghost" data-reject="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Reject</button>`
@@ -218,6 +273,7 @@ function renderDecisions(s) {
         <div>
           <h4>Rationale</h4>
           <p>${esc(d.rationale || "—")}</p>
+          ${d.exit_reason ? `<h4>Exit reason</h4><p>${esc(d.exit_reason)}${mandateOn && d.side === "SELL" ? " · covered by the operator exit mandate" : ""}</p>` : ""}
           <h4>Cycle</h4>
           <p>${esc(d.cycle)} · slot ${esc(d.slot || "—")} · ${esc(d.sleeve || "")}</p>
           <h4>Generated / gate</h4>
@@ -230,9 +286,9 @@ function renderDecisions(s) {
         <div>
           <h4>Evidence</h4>
           <ul class="evidence">${evidence || "<li>none</li>"}</ul>
-          ${canApprove || canRunGuard ? `<div class="approve-box">
-            <button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">${canRunGuard ? "Run Guard now" : "Approve this ticket"}</button>
-            <span class="muted">${guardOn ? "writes approvals.json · starts the Guard session · the gate re-checks everything" : "writes approvals.json · no order sent"}</span>
+          ${canApprove || canRunGuard || canRunExit ? `<div class="approve-box">
+            <button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">${canRunExit ? "Execute this exit" : canRunGuard ? "Run Guard now" : "Approve this ticket"}</button>
+            <span class="muted">${canRunExit ? "pre-authorized full exit · starts the Guard session · the gate re-checks everything" : guardOn ? "writes approvals.json · starts the Guard session · the gate re-checks everything" : "writes approvals.json · no order sent"}</span>
           </div>` : ""}
           ${canReject ? `<div class="approve-box">
             <button class="ghost" data-reject="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Reject this ticket</button>
@@ -246,12 +302,38 @@ function renderDecisions(s) {
   document.getElementById("decisions").innerHTML = head + body;
 }
 
+function renderSession(s) {
+  const m = s.market || {};
+  const el = document.getElementById("session");
+  const open = m.state === "OPEN";
+  el.dataset.state = m.state ? m.state.toLowerCase() : "unknown";
+  document.getElementById("session-state").textContent = m.state
+    ? open ? "US market open" : "US market closed"
+    : "US market";
+  const hours = m.session_open && m.session_close ? `${m.session_open}–${m.session_close} ET` : "";
+  let detail = "session calendar unavailable";
+  if (open) {
+    detail = `${m.reason === "early close" ? "early close" : "regular session"} · closes ${etTime(m.closes_at)}`;
+  } else if (m.state) {
+    const opens = m.next_open ? `opens ${etDay(m.next_open)} ${etTime(m.next_open)}` : "no open session scheduled";
+    detail = `${m.reason || "closed"} · ${opens}`;
+  }
+  if (STATIC_MODE && m.state) detail += " · at export";
+  document.getElementById("session-detail").textContent = detail;
+  el.title = hours
+    ? `US regular session ${hours}${m.early_close ? " (early close)" : ""} · ${m.reason || ""}`
+    : "US regular session 09:30–16:00 ET";
+}
+
 function render(s) {
   document.getElementById("account-id").textContent = s.account_id || "—";
-  document.getElementById("mode").innerHTML = s.demo
+  document.getElementById("mode").innerHTML = STATIC_MODE
+    ? `PAPER · <span class="demo-badge">READ-ONLY SNAPSHOT</span>`
+    : s.demo
     ? `DEMO <span class="demo-badge">SYNTHETIC DATA</span>`
     : "LIVE";
   document.getElementById("as-of").textContent = clock(s.as_of);
+  renderSession(s);
   renderKpis(s);
   renderChart(s);
   renderPositions(s);
@@ -276,7 +358,11 @@ function renderCloud(payload) {
 
   if (!cloudState.configured) {
     count.textContent = "disabled";
-    table.innerHTML = head + `<tr><td colspan="5" class="empty">Cloud session reads are off — set QODER_PAT_TKN in .env and restart. The token stays on the server.</td></tr>`;
+    table.innerHTML = head + `<tr><td colspan="5" class="empty">${
+      STATIC_MODE
+        ? "Cloud session reads are not included in the read-only snapshot."
+        : "Cloud session reads are off — no cloud token is configured on the local server."
+    }</td></tr>`;
     return;
   }
   if (cloudState.error) {
@@ -293,7 +379,7 @@ function renderCloud(payload) {
   const body = rows.map((s) => {
     const id = s.id || "";
     const main = `<tr class="row-toggle" data-cloud="${esc(id)}">
-      <td class="col-time">${shortClock(s.created_at)}</td>
+      <td class="col-time" title="${esc(clock(s.created_at))}">${shortClock(s.created_at)}</td>
       <td class="sym">${esc(s.agent || "—")}</td>
       <td>${esc(s.title || id)}<div class="muted">${esc(s.deployment_id || "manual run")}</div></td>
       <td><span class="pill ${cloudPill(s.status)}">${esc(s.status || "—")}</span></td>
@@ -310,7 +396,7 @@ function renderCloud(payload) {
         ? `<ol class="evidence run-log">${events
             .map(
               (e) =>
-                `<li><span class="muted">${shortClock(e.at)}</span> <span class="tag">${esc(e.type)}</span> ${esc(e.text || "")}</li>`
+                `<li><span class="muted" title="${esc(clock(e.at))}">${shortClock(e.at)}</span> <span class="tag">${esc(e.type)}</span> ${esc(e.text || "")}</li>`
             )
             .join("")}</ol>`
         : `<div class="empty">No public events.</div>`;
@@ -319,7 +405,9 @@ function renderCloud(payload) {
       `<tr class="detail"><td colspan="5">
         <h4>${esc(id)} · latest events</h4>
         ${listing}
-        <div class="muted" style="margin-top:8px">read-only · fetched server-side · the PAT never reaches this page</div>
+        <div class="muted" style="margin-top:8px">${
+          STATIC_MODE ? "read-only snapshot · captured at export time" : "read-only · fetched server-side · the PAT never reaches this page"
+        }</div>
       </td></tr>`
     );
   }).join("");
@@ -328,7 +416,7 @@ function renderCloud(payload) {
 
 async function loadCloud() {
   try {
-    const res = await fetch("/api/cloud/sessions?limit=12", { cache: "no-store" });
+    const res = await fetch(CLOUD_URL, { cache: "no-store" });
     renderCloud(await res.json());
   } catch (err) {
     renderCloud({ configured: true, error: err.message, sessions: [] });
@@ -336,6 +424,11 @@ async function loadCloud() {
 }
 
 async function loadCloudEvents(id) {
+  if (STATIC_MODE) {
+    cloudEvents.set(id, { error: "the event stream is not part of the read-only snapshot" });
+    if (cloudState) renderCloud(cloudState);
+    return;
+  }
   try {
     const res = await fetch(`/api/cloud/events?id=${encodeURIComponent(id)}&limit=40`, {
       cache: "no-store",
@@ -350,7 +443,7 @@ async function loadCloudEvents(id) {
 
 async function load() {
   try {
-    const res = await fetch("/api/state", { cache: "no-store" });
+    const res = await fetch(STATE_URL, { cache: "no-store" });
     if (!res.ok) throw new Error("state " + res.status);
     state = await res.json();
     render(state);
@@ -360,6 +453,10 @@ async function load() {
 }
 
 async function approve(ticketId, cycleFile, button) {
+  if (STATIC_MODE) {
+    toast("Read-only snapshot — approvals run from the local operator dashboard.", true);
+    return;
+  }
   if (busy) return;
   const ok = confirm(
     `Approve ${ticketId}?\n\nThis writes a hash-bound approval to runtime/approvals.json and starts the Guard agent.\nThe Guard re-runs the rule gate before anything is sent; it never widens the ticket.`
@@ -395,6 +492,10 @@ async function approve(ticketId, cycleFile, button) {
 }
 
 async function reject(ticketId, cycleFile, button) {
+  if (STATIC_MODE) {
+    toast("Read-only snapshot — rejections run from the local operator dashboard.", true);
+    return;
+  }
   if (busy) return;
   const ok = confirm(
     `Reject ${ticketId}?\n\nThis appends a rejection record to runtime/rejections.jsonl and blocks approval for this ticket.\nNothing is sent to the broker.`
@@ -463,7 +564,9 @@ document.getElementById("refresh").addEventListener("click", () => {
 });
 load();
 loadCloud();
-setInterval(() => {
-  load();
-  loadCloud();
-}, 30000);
+if (!STATIC_MODE) {
+  setInterval(() => {
+    load();
+    loadCloud();
+  }, 30000);
+}

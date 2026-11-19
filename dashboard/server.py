@@ -67,13 +67,24 @@ class App:
         cycle_file = payload.get("cycle_file")
         if not isinstance(ticket_id, str) or not isinstance(cycle_file, str):
             return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "ticket_id and cycle_file are required"}
+        mandated = state.authorize_exit(
+            runtime=self.runtime,
+            cycle_file=cycle_file,
+            ticket_id=ticket_id,
+            events_file=self.events_file,
+        )
+        if mandated is not None:
+            if not mandated.get("ok"):
+                return HTTPStatus.CONFLICT, mandated
+            mandated["guard"] = self.trigger_guard(cycle_file, ticket_id)
+            return HTTPStatus.OK, mandated
         ttl = payload.get("ttl_minutes")
         try:
             ttl_minutes = int(ttl) if ttl is not None else state.load_limits(self.config_path)["approval_ttl_minutes"]
         except (TypeError, ValueError):
             return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "ttl_minutes must be an integer"}
-        if not 1 <= ttl_minutes <= 480:
-            return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "ttl_minutes must be between 1 and 480"}
+        if not 1 <= ttl_minutes <= 1440:
+            return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "ttl_minutes must be between 1 and 1440"}
         result = state.approve_ticket(
             runtime=self.runtime,
             cycle_file=cycle_file,
@@ -129,13 +140,22 @@ class App:
                 cycle_file=cycle_file,
                 ticket_id=ticket_id,
                 approvals_file=self.approvals_file,
+                max_snapshot_age_minutes=state.load_limits(self.config_path)[
+                    "guard_max_snapshot_age_minutes"
+                ],
             )
         except guard_link.GuardLinkError as err:
             return {"configured": True, "triggered": False, "error": str(err)}
+        record = next(
+            r
+            for r in envelope["evidence"]["cycle"]["records"]
+            if r.get("ticket_id") == ticket_id
+        )
         base = {
             "ticket_id": ticket_id,
             "cycle_file": Path(cycle_file).name,
-            "proposal_hash": envelope["evidence"]["approvals"][ticket_id]["proposal_hash"],
+            "proposal_hash": record["proposal_hash"],
+            "authorization": envelope["authorization"],
             "session_id": self.guard.session_id,
             "requested_at": envelope["requested_at"],
         }

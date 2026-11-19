@@ -1,4 +1,5 @@
 from gate.config import load_limits
+from gate.mandate import EXIT_REASONS, ExitMandate, load_mandate, save_mandate
 from gate.models import (
     AccountState,
     Approval,
@@ -16,6 +17,8 @@ __all__ = [
     "AccountState",
     "Approval",
     "Evidence",
+    "EXIT_REASONS",
+    "ExitMandate",
     "GateResult",
     "Instrument",
     "Position",
@@ -23,6 +26,8 @@ __all__ = [
     "Rejection",
     "WorkingOrder",
     "load_limits",
+    "load_mandate",
+    "save_mandate",
     "estimate_fees",
     "evaluate",
     "validate_proposal",

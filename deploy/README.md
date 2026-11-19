@@ -1,7 +1,9 @@
 # QCA deployment runbook — Moomoo Scout + Guard
 
-**Status as of 2026-11-17.** Read §0 first: the code is ready, the cloud *wiring* is not
-fully verified, and this document separates the two.
+**Status as of 2026-11-19.** Read §0 first: the code is ready, the cloud *wiring* is not
+fully verified, and this document separates the two. Path B (operator decision 2026-11-19)
+is in force: EMA8 > EMA21 entry trigger, 12-hour entry approvals, and a bounded operator
+exit mandate that lets Guard run scheduled **exit-only** runs — see §4.2.
 
 ---
 
@@ -9,18 +11,21 @@ fully verified, and this document separates the two.
 
 | Item | State | Evidence |
 |---|---|---|
-| Rule gate R1–R11, Guard, adapter, Scout | **Ready** | `python -m unittest discover -s tests -t .` → 107 tests OK |
+| Rule gate R1–R11, Guard, adapter, Scout | **Ready** | `python -m unittest discover -s tests -t .` → 284 tests OK |
 | Cloud-side order bridge (`guard/bridge.py`) | **Ready** | `tests/test_bridge.py`, 18 tests |
 | Deterministic tickets + idempotent retries | **Ready** | `qdr:<ticket>` note, `EventLog(..., append=True)` |
+| Exit mandate (R11 exemption, bounded) | **Ready** | `gate/mandate.py`, `guard/mandate_cli.py`, `tests/test_mandate.py` |
+| Stale-snapshot Guard refusal | **Ready** | `dashboard/guard.py`, `guard_max_snapshot_age_minutes` (30) |
 | QCA account resources | **Not created yet** | no agents, skills, vaults; only Default env `env_00vnzcnwu62gxw85awt9` |
 | moomoo remote MCP in cloud | **Unverified** | needs the server URL and an auth method QCA can replay |
 | Default environment networking | **Blocked by default** | reports `allow_mcp_servers: false`, `allow_package_managers: false` |
 | Skill / vault upload over API | **Not available** | console-only (Skills → Create Skill, Vaults) |
 | Human approval inside a cron run | **Impossible by design** | a scheduled run cannot wait for a person |
 
-Consequence: **approval stays outside the cloud scheduler.** Scout may run on a cron;
-Guard runs only when you trigger it (or run it locally). Anything else would quietly
-break G3/R11, which is the one guarantee the submission is judged on.
+Consequence: **entry approval stays outside the cloud scheduler.** Scout may run on a cron;
+Guard runs on an operator trigger for entries, and on an exit-only cron only while a valid
+operator exit mandate is on disk (§4.2). Anything else would quietly break G3/R11, which is
+the one guarantee the submission is judged on.
 
 ### Deployed state, 2026-11-17 (created over MCP)
 
@@ -236,14 +241,15 @@ against a local `scout plan` on the same raw file: identical ticket ids and gate
    `P-YYYYMMDD-HHMM-SYMBOL-NN`.
 2. **You review** `AWAITING_APPROVAL` records only, using the printed rationale, cost,
    % of equity and gate codes. HOLDs show as `REJECTED` with `R10_EVIDENCE_STALE`.
-3. **Approve** (single ticket, 30 min TTL, hash-bound):
+3. **Approve** (single ticket, 12 h TTL from `approval_ttl_minutes`, hash-bound):
    ```
    python -m scout approve --cycle runtime/cycle-0945.json --ticket P-... \
        --approvals runtime/approvals.json
    ```
    The dashboard's **Approve** button does this and then triggers the Guard run for you —
-   see §4.1.
-4. **Guard run** (manual, never cron):
+   see §4.1. The 12-hour window is what makes the 22:45 / 00:00 SGT cycles usable: an
+   evening approval is still valid later in the same US session.
+4. **Guard run** (operator trigger for entries; exit-only cron only under a mandate, §4.2):
    ```
    python -m guard.bridge_cli prepare --cycle runtime/cycle-0945.json --ticket P-... \
        --account runtime/account-5829804.json --approvals runtime/approvals.json \
@@ -283,7 +289,7 @@ instead of rendering a fake −100%. Demo mode reads and writes only the `*-demo
 the fixtures are never mutated. Poll interval is 30 s.
 
 **Approve → Guard.** **Approve** on an `AWAITING_APPROVAL` row writes the same hash-bound
-record as step 3 (cycle `proposal_hash`, 30 min TTL), flips the row to `APPROVED`, then
+record as step 3 (cycle `proposal_hash`, 12 h TTL), flips the row to `APPROVED`, then
 posts a Guard trigger to the persistent Forward Guard session
 (`QODER_GUARD_SESSION_ID` in `.env`, or `--guard-session`; `--no-guard` disables it). The
 trigger message carries a `guard-trigger` envelope: the cycle record, the account
@@ -297,6 +303,19 @@ authorization, so `sim_trade_input_order` is `always_allow` while cancel stays
 `rejected`/`unknown`. Only an HTTP refusal may be retried ("Run Guard" reappears); an
 `unknown` outcome stays blocked until the Guard session is checked by hand. Demo mode never
 triggers the Guard.
+
+**Snapshot freshness.** A trigger is refused when the cycle `generated_at`, the account
+`as_of`, or `metrics.as_of` is older than `guard_max_snapshot_age_minutes` (30 by default,
+`config.json`) or more than 5 minutes in the future. The approval is still recorded — only
+the Guard run is blocked — and the row shows the age. Run a fresh Scout cycle first; a stale
+snapshot is how a wrong quantity or price reaches the broker.
+
+**Mandated exits.** With an active exit mandate (§4.2) a `READY` full-position SELL row shows
+**Execute exit** instead of Approve. The click writes no approval: the server re-checks the
+mandate hash, bounds and per-run cap, then sends the same envelope with
+`"authorization": "MANDATE"`, `"mandate_id"`, and `evidence.approvals` `{}`. A partial trim,
+a BUY, an expired mandate or a gate rejection returns 409 and nothing is sent. The mandate
+panel shows id, account, expiry and max exits per run — never the operator's note.
 
 **Reject → log.** **Reject** appends `{ticket_id, cycle_file, proposal_hash, symbol, side,
 quantity, limit_price, est_cost, gate_codes, rejected_at, actor, reason}` to
@@ -315,9 +334,73 @@ shows "disabled" and the rest of the dashboard works unchanged.
 
 ---
 
+### 4.2 Exit mandate and the exit-only schedule (Path B, 2026-11-19)
+
+Overnight protection cannot depend on a human being awake, and the paper broker has no
+server-side stop order (`order_type` is limit or market only). The operator therefore signs
+a **bounded exit mandate**; Guard may execute the exits it covers on a schedule. Entries are
+unaffected: they still need a per-ticket hash-bound approval.
+
+Grant / inspect / revoke — operator commands only, never an agent's:
+
+```
+python -m guard.mandate_cli grant --account-id 5829804 --hours 72 \
+    --granted-by "<operator>" --note "overnight stop protection" \
+    --reasons all --max-exits 6
+python -m guard.mandate_cli show          # exit 1 when absent, expired or tampered
+python -m guard.mandate_cli revoke --reason "competition window closed"
+```
+
+`--hours` must be in (0, 168]; replacing an active mandate needs `--replace`. `--reasons`
+defaults to all four (`EXIT_CORE_BELOW_SMA50`, `EXIT_BELOW_SMA50`, `EXIT_STOP_LOSS`,
+`EXIT_TREND_CROSS`) or a comma-separated subset. The file is sha256-self-bound: editing any
+field makes `load_mandate` raise, and every consumer (gate, Scout, bridge CLI, dashboard)
+then refuses to act. `revoke` archives it as `exit-mandate.revoked-<ts>.json` and appends
+`MANDATE_REVOKED` to the event log.
+
+What the mandate covers, all enforced in `gate/mandate.py` before R11 passes:
+
+- account `5829804` only, and only inside the grant→expiry window (300 s clock skew);
+- `SELL` of the **entire** held quantity, with an `exit_reason` in the allowed list;
+- at most `max_exits_per_run` exits per run, counted from `ORDER_SUBMITTED` events in
+  `runtime/guard-events.jsonl` for the run key `<cycle date>:<slot>` — not from a number an
+  agent supplies;
+- R1–R10 still apply in full. A BUY, a partial trim, a new position, or an unheld symbol is
+  `R11_NO_APPROVAL`. An unconfirmed broker outcome still halts everything, exits included.
+
+Exit-only cycle (Scout, between the four entry slots):
+
+```
+python -m scout plan --exit-only --raw runtime/market-raw.json \
+    --account runtime/account-5829804.json --approvals runtime/approvals.json \
+    --out runtime/cycle-<HHMM>.json
+```
+
+No `--slot`: the label is the current ET time, entries are blocked, only held positions are
+examined, and news is not required for a SELL. Without a mandate the exits come back
+`AWAITING_APPROVAL`; with one they come back `READY`.
+
+Schedule (Forward **Schedule**, not a Managed Deployment — the agents are Forward templates).
+The Guard refuses any snapshot older than 30 minutes, so the Scout cycle must run first and
+the Guard a few minutes later. Proposed cadence, **not created yet — needs operator
+confirmation**:
+
+| Run | cron (America/New_York) | Message |
+|---|---|---|
+| Scout exit-only | `*/30 10-15 * * 1-5` | "Run an exit-only Scout cycle per moomoo-scout-cycle. No entries." |
+| Guard exit-only | `5,35 10-15 * * 1-5` | "Scheduled exit-only run: verify the mandate, then execute the READY SELL records of the newest cycle." |
+
+The 15:30 entry-slot cycle is already exits-only, so the last Guard pass of the day covers it.
+On a holiday or a closed session both runs stop after one line. If the mandate is absent,
+expired or tampered, the Guard run submits nothing and reports that exits need per-ticket
+approval — that is the intended failure mode, not something to work around.
+
+---
+
 ## 5. What the cloud cannot do
 
-- **Wait for approval.** Hence Guard is manual. Do not add a cron for it.
+- **Wait for entry approval.** Hence entries are operator-triggered; the only Guard cron is
+  the exit-only run of §4.2, and only while a valid mandate is on disk.
 - **Upload skills or vaults.** Console only; budget five minutes.
 - **Reach moomoo without an authorized MCP registration.** §3.4 is the gate.
 - **Keep state between runs.** Every run is a fresh session; persist `runtime/` in the
@@ -333,6 +416,9 @@ shows "disabled" and the rest of the dashboard works unchanged.
 | Broker rejects explicitly | `record` writes `ORDER_REJECTED`; no halt; safe to retry with a **new** ticket |
 | Duplicate ticket replay | deterministic ticket id → second `prepare` is indistinguishable; the `qdr:` note and `ORDER_EXISTING` make the paper broker dedupe visible |
 | MCP timeout during Scout | skip the slot, log `RUN_SKIPPED`; never invent a price |
+| Snapshot older than 30 min | dashboard refuses the trigger; Guard reports "stale snapshot"; run a fresh cycle, never refresh data inside Guard |
+| Mandate absent / expired / hash mismatch | exit-only run submits nothing and reports that exits need per-ticket approval |
+| Exit beyond `max_exits_per_run` | `prepare` returns `R11_NO_APPROVAL`; report as skipped, do not raise the cap |
 
 ## 7. Teardown
 

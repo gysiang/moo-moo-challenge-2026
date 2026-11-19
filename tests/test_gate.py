@@ -120,9 +120,25 @@ class TestCompetitionAcceptance(unittest.TestCase):
 
     def test_t3_expired_approval_rejected(self) -> None:
         proposal = make_proposal()
-        expired = approve(proposal, approved_at=NOW - timedelta(minutes=31))
+        expired = approve(proposal, approved_at=NOW - LIMITS.approval_ttl - timedelta(minutes=1))
         result = evaluate(
             proposal, make_instrument(), make_state(proposal, approval=expired), LIMITS
+        )
+        self.assertIn("R11_NO_APPROVAL", result.codes)
+
+    def test_overnight_approval_survives_twelve_hour_ttl(self) -> None:
+        proposal = make_proposal()
+        overnight = approve(proposal, approved_at=NOW - timedelta(hours=11))
+        result = evaluate(
+            proposal, make_instrument(), make_state(proposal, approval=overnight), LIMITS
+        )
+        self.assertNotIn("R11_NO_APPROVAL", result.codes)
+
+    def test_approval_older_than_ttl_is_rejected(self) -> None:
+        proposal = make_proposal()
+        stale = approve(proposal, approved_at=NOW - timedelta(hours=13))
+        result = evaluate(
+            proposal, make_instrument(), make_state(proposal, approval=stale), LIMITS
         )
         self.assertIn("R11_NO_APPROVAL", result.codes)
 

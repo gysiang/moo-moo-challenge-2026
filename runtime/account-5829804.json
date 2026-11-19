@@ -1,17 +1,17 @@
 {
  "account_id": "5829804",
- "as_of": "2026-11-18T16:11:26+00:00",
+ "as_of": "2026-11-19T15:35:30+00:00",
  "cash": 96817.636,
- "equity": 99997.741,
- "day_open_equity": 100000.0,
- "executed_orders_today": 1,
+ "equity": 99953.164,
+ "day_open_equity": 99989.686,
+ "executed_orders_today": 0,
  "positions": {
   "US.AAPL": {
    "quantity": 9,
    "average_cost": 353.486,
-   "market_value": 3180.24
+   "market_value": 3135.78
   }
  },
  "working_orders": [],
- "note": "mirrored from guard session sess_00vunjsgh6bcxvm7xq04 (sim_trade_cash_info / sim_trade_position_list at 16:11:26Z)"
+ "note": "operator-refreshed read-only mirror at 2026-11-19T15:35:30Z from sim_trade_cash_info / sim_trade_position_list / sim_trade_history_order_list (no orders 2026-11-19); day_open_equity = cash + 9 x AAPL prior close 352.45, used as the daily-stop baseline because the 09:45 cycle account snapshot was not delivered"
 }

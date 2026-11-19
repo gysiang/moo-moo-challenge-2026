@@ -20,6 +20,8 @@ class Metrics:
     market_cap: float
     sma20: float
     sma50: float
+    ema_fast: float
+    ema_slow: float
     high20: float
     roc20: float
     as_of: datetime
@@ -31,7 +33,7 @@ class Metrics:
 
     @property
     def trend_up(self) -> bool:
-        return self.last_price > self.sma50 and self.sma20 > self.sma50
+        return self.ema_fast > self.ema_slow
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,8 @@ class CycleReport:
     entries_allowed: bool
     records: tuple[Record, ...]
     skipped: tuple[Skip, ...]
+    mandate_id: str = ""
+    mandate_max_exits: int = 0
 
     def ready(self) -> tuple[Proposal, ...]:
         return tuple(r.proposal for r in self.records if r.status == READY)
@@ -75,6 +79,14 @@ class CycleReport:
             "generated_at": self.generated_at.isoformat(),
             "trading_day": self.trading_day,
             "entries_allowed": self.entries_allowed,
+            "exit_mandate": (
+                {
+                    "mandate_id": self.mandate_id,
+                    "max_exits_per_run": self.mandate_max_exits,
+                }
+                if self.mandate_id
+                else None
+            ),
             "records": [
                 {
                     "sleeve": record.sleeve,
@@ -89,6 +101,7 @@ class CycleReport:
                     "est_cost": record.proposal.est_cost,
                     "created_at": record.proposal.created_at.isoformat(),
                     "rationale": record.proposal.rationale,
+                    "exit_reason": record.proposal.exit_reason,
                     "evidence": [
                         {
                             "id": item.evidence_id,
