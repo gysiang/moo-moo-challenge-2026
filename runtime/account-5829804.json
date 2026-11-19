@@ -1,9 +1,17 @@
 {
-  "account_id": "5829804",
-  "cash": 100000.0,
-  "equity": 100000.0,
-  "day_open_equity": 100000.0,
-  "executed_orders_today": 0,
-  "positions": {},
-  "working_orders": []
+ "account_id": "5829804",
+ "as_of": "2026-11-18T16:11:26+00:00",
+ "cash": 96817.636,
+ "equity": 99997.741,
+ "day_open_equity": 100000.0,
+ "executed_orders_today": 1,
+ "positions": {
+  "US.AAPL": {
+   "quantity": 9,
+   "average_cost": 353.486,
+   "market_value": 3180.24
+  }
+ },
+ "working_orders": [],
+ "note": "mirrored from guard session sess_00vunjsgh6bcxvm7xq04 (sim_trade_cash_info / sim_trade_position_list at 16:11:26Z)"
 }

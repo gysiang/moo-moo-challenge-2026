@@ -1,0 +1,4 @@
+{"event": "ORDER_SUBMITTED", "limit_price": 354.83, "order_id": "3145091", "quantity": 9, "seq": 0, "side": "BUY", "symbol": "US.AAPL", "ticket_id": "P-20261118-0945-AAPL-06"}
+{"event": "RECONCILED", "filled": 0, "order_id": "3145091", "position_quantity": 0, "seq": 1, "status": "SUBMITTED", "submitted": 9, "unfilled": 9}
+{"event": "RECONCILED", "filled": 9, "order_id": "3145091", "position_quantity": 9, "seq": 2, "status": "FILLED", "submitted": 9, "unfilled": 0}
+{"event": "HALTED", "reason": "trigger account snapshot contradicts broker: claims cash 100000/0 positions/0 orders today, broker shows cash 96817.636 and 9 US.AAPL (order 3145091 filled); P-20261118-0945-PG-03 not submitted", "seq": 3}

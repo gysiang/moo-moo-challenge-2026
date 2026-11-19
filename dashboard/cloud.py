@@ -11,6 +11,7 @@ from typing import Any, Callable, Optional
 BASE_URL = "https://api.qoder.com/api/v1/cloud"
 TOKEN_KEY = "QODER_PAT_TKN"
 SESSION_ID = re.compile(r"^sess_[A-Za-z0-9]+$")
+FILE_ID = re.compile(r"^file_[A-Za-z0-9]+$")
 NOISE_EVENTS = {"span.model_request_start", "span.model_request_end", "session.updated"}
 
 Transport = Callable[[urllib.request.Request, float], "tuple[int, bytes]"]
@@ -138,6 +139,53 @@ class CloudClient:
             params["types"] = ",".join(types)
         data = self._request("GET", f"/sessions/{session_id}/events", params=params).get("data")
         return [row for row in data or [] if isinstance(row, dict)]
+
+    def files(
+        self,
+        *,
+        limit: int = 20,
+        scope_id: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> list[dict]:
+        params: dict[str, Any] = {"limit": max(1, min(int(limit), 100)), "order": "desc"}
+        if scope_id:
+            if not SESSION_ID.match(scope_id):
+                raise CloudError(400, "invalid scope_id")
+            params["scope_id"] = scope_id
+        if name:
+            params["name"] = name
+        data = self._request("GET", "/files", params=params).get("data")
+        return [row for row in data or [] if isinstance(row, dict)]
+
+    def file(self, file_id: str) -> dict:
+        if not FILE_ID.match(file_id or ""):
+            raise CloudError(400, "invalid file id")
+        payload = self._request("GET", f"/files/{file_id}")
+        item = payload.get("item") if isinstance(payload.get("item"), dict) else payload
+        return item if isinstance(item, dict) else {}
+
+    def file_content(self, file_id: str) -> dict:
+        if not FILE_ID.match(file_id or ""):
+            raise CloudError(400, "invalid file id")
+        payload = self._request("GET", f"/files/{file_id}/content")
+        url = payload.get("url")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise CloudError(502, "file content response has no https download url")
+        return {"url": url, "expires_at": payload.get("expires_at")}
+
+    def download_file(self, file_id: str) -> bytes:
+        info = self.file_content(file_id)
+        request = urllib.request.Request(
+            info["url"], headers={"User-Agent": "moomoo-dashboard/1"}, method="GET"
+        )
+        try:
+            status, body = self._transport(request, self._timeout)
+        except (urllib.error.URLError, TimeoutError, OSError) as err:
+            reason = getattr(err, "reason", err)
+            raise CloudError(0, self._redact(f"artifact download unreachable: {reason}")) from None
+        if not 200 <= status < 300:
+            raise CloudError(status, f"artifact download returned HTTP {status}")
+        return body
 
     def send_user_message(self, session_id: str, text: str, *, limit: int = 256_000) -> dict:
         if not SESSION_ID.match(session_id or ""):

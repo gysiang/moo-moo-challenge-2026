@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import threading
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.cloud import TOKEN_KEY, CloudClient, load_env
@@ -31,6 +34,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-cloud", action="store_true", help="disable Cloud Agents access")
     parser.add_argument("--guard-session", help=f"Guard Forward session id (default: {SESSION_KEY})")
     parser.add_argument("--no-guard", action="store_true", help="approve without starting the Guard")
+    parser.add_argument(
+        "--sync-interval",
+        type=float,
+        default=0.0,
+        help="seconds between artifact sync passes from cloud sessions; 0 disables",
+    )
     args = parser.parse_args(argv)
 
     runtime = Path(args.runtime) if args.runtime else (DEFAULT_DEMO_RUNTIME if args.demo else DEFAULT_RUNTIME)
@@ -54,6 +63,42 @@ def main(argv: list[str] | None = None) -> int:
         guard = None
         print("guard link: disabled in demo mode (synthetic fixtures never place orders)")
 
+    sync_status: dict = {"interval": None, "last": None}
+    sync_run = None
+    if args.sync_interval > 0:
+        if args.demo:
+            parser.error("--sync-interval is disabled in demo mode")
+        if cloud is None:
+            parser.error(f"--sync-interval needs {TOKEN_KEY} in {env_file} and no --no-cloud")
+        from dashboard.sync import sync_once
+
+        def sync_run() -> dict:
+            result = sync_once(cloud, runtime, limit=12)
+            sync_status["interval"] = interval
+            sync_status["last"] = {
+                "at": datetime.now(timezone.utc).isoformat(),
+                "sessions": result["sessions"],
+                "files": result["files"],
+                "written": len(result["written"]),
+                "errors": result["errors"][:5],
+            }
+            return result
+
+        interval = max(10.0, float(args.sync_interval))
+
+        def sync_loop() -> None:
+            while True:
+                try:
+                    sync_run()
+                except Exception as err:  # keep the dashboard alive; the loop retries next pass
+                    sync_status["last"] = {
+                        "at": datetime.now(timezone.utc).isoformat(),
+                        "error": str(err)[:200],
+                    }
+                time.sleep(interval)
+
+        threading.Thread(target=sync_loop, daemon=True, name="artifact-sync").start()
+
     httpd = serve(
         runtime=runtime,
         config_path=Path(args.config),
@@ -61,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
         demo=args.demo,
         cloud=cloud,
         guard=guard,
+        sync_status=sync_status,
+        sync_run=sync_run,
         port=args.port,
     )
     print(f"dashboard http://127.0.0.1:{args.port}  runtime={runtime}  demo={args.demo}")
@@ -74,6 +121,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"guard link: disabled (no {SESSION_KEY} in {env_file}, or --no-guard)")
     print("approvals write to", runtime / "approvals.json")
     print("rejections append to", runtime / "rejections.jsonl")
+    if sync_run is not None:
+        print(f"artifact sync: every {int(interval)}s from moomoo-scout/moomoo-guard sessions")
+    else:
+        print("artifact sync: disabled (--sync-interval 0)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

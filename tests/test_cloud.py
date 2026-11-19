@@ -4,7 +4,7 @@ import json
 import threading
 import unittest
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from dashboard import cloud
 from dashboard.server import serve
@@ -157,6 +157,83 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, 409)
         self.assertIn("archived", caught.exception.message)
 
+    def test_files_scopes_to_session(self):
+        transport = ok({"data": [{"id": "file_abc123", "name": "cycle-0945.json"}]})
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        rows = client.files(scope_id="sess_abc123", limit=7)
+        self.assertEqual(rows[0]["name"], "cycle-0945.json")
+        url = transport.calls[0].full_url
+        self.assertIn("/api/v1/cloud/files?", url)
+        self.assertIn("scope_id=sess_abc123", url)
+        self.assertIn("limit=7", url)
+
+    def test_files_rejects_bad_scope_without_request(self):
+        transport = ok({"data": []})
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        with self.assertRaises(cloud.CloudError):
+            client.files(scope_id="../../agents")
+        self.assertEqual(transport.calls, [])
+
+    def test_file_returns_item_or_bare_payload(self):
+        transport = ok({"id": "file_abc123", "name": "cycle-0945.json", "url": "https://example.invalid/x"})
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        item = client.file("file_abc123")
+        self.assertEqual(item["name"], "cycle-0945.json")
+        self.assertEqual(transport.calls[0].full_url, "https://api.qoder.com/api/v1/cloud/files/file_abc123")
+
+    def test_file_unwraps_item_envelope(self):
+        transport = ok({"item": {"id": "file_abc123", "name": "guard-events.jsonl"}})
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        self.assertEqual(client.file("file_abc123")["name"], "guard-events.jsonl")
+
+    def test_file_rejects_bad_id_without_request(self):
+        transport = ok({})
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        with self.assertRaises(cloud.CloudError):
+            client.file("../files")
+        self.assertEqual(transport.calls, [])
+
+    def test_file_content_returns_presigned_url(self):
+        transport = ok({"url": "https://bucket.example/x?sig=1", "expires_at": "2026-11-18T17:16:22Z"})
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        info = client.file_content("file_abc123")
+        self.assertEqual(info["url"], "https://bucket.example/x?sig=1")
+        self.assertEqual(
+            transport.calls[0].full_url,
+            "https://api.qoder.com/api/v1/cloud/files/file_abc123/content",
+        )
+
+    def test_file_content_without_url_is_error(self):
+        client = cloud.CloudClient(TOKEN, transport=ok({"expires_at": "x"}))
+        with self.assertRaises(cloud.CloudError):
+            client.file_content("file_abc123")
+
+    def test_download_file_uses_presigned_url_without_auth_header(self):
+        presigned = "https://bucket.example/content?Expires=1&Signature=abc"
+
+        def respond(request):
+            if request.full_url.endswith("/files/file_abc123/content"):
+                return 200, json.dumps({"url": presigned, "expires_at": "2026-11-18T17:16:22Z"}).encode()
+            return 200, b'{"slot": "09:45", "records": []}'
+
+        transport = FakeTransport(respond)
+        client = cloud.CloudClient(TOKEN, transport=transport)
+        payload = client.download_file("file_abc123")
+        self.assertEqual(payload, b'{"slot": "09:45", "records": []}')
+        self.assertEqual(transport.calls[1].full_url, presigned)
+        self.assertIsNone(transport.calls[1].get_header("Authorization"))
+
+    def test_download_file_http_error_maps(self):
+        def respond(request):
+            if request.full_url.endswith("/content"):
+                return 200, json.dumps({"url": "https://bucket.example/x?sig=1"}).encode()
+            return 403, b"denied"
+
+        client = cloud.CloudClient(TOKEN, transport=FakeTransport(respond))
+        with self.assertRaises(cloud.CloudError) as caught:
+            client.download_file("file_abc123")
+        self.assertEqual(caught.exception.status, 403)
+
 
 class SummarizeTests(unittest.TestCase):
     def test_session_summary(self):
@@ -184,13 +261,15 @@ class SummarizeTests(unittest.TestCase):
 
 
 class CloudServerTests(unittest.TestCase):
-    def _serve(self, cloud_client):
+    def _serve(self, cloud_client, sync_run=None, sync_status=None):
         self.httpd = serve(
             runtime=ROOT / "runtime" / "dashboard-demo",
             config_path=ROOT / "config.json",
             baseline=100000.0,
             demo=True,
             cloud=cloud_client,
+            sync_status=sync_status,
+            sync_run=sync_run,
             port=0,
         )
         self.port = self.httpd.server_address[1]
@@ -246,7 +325,32 @@ class CloudServerTests(unittest.TestCase):
         with urlopen(f"http://127.0.0.1:{self.port}/api/cloud/sessions", timeout=5) as response:
             raw = response.read().decode("utf-8")
         self.assertIn("nope", raw)
-        self.assertNotIn(TOKEN, raw)
+
+    def test_sync_route_reports_disabled(self):
+        self._serve(None)
+        with urlopen(f"http://127.0.0.1:{self.port}/api/sync", timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        self.assertFalse(payload["configured"])
+        self.assertIsNone(payload["last"])
+
+    def test_sync_route_exposes_last_status_and_runs_now(self):
+        calls = []
+        status = {"interval": 60.0, "last": {"at": "2026-11-18T16:45:00Z", "written": 1}}
+
+        def sync_run():
+            calls.append(1)
+            return {"written": [{"file": "cycle-0945.json"}], "errors": []}
+
+        self._serve(None, sync_run=sync_run, sync_status=status)
+        with urlopen(f"http://127.0.0.1:{self.port}/api/sync", timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        self.assertTrue(payload["configured"])
+        self.assertEqual(payload["last"]["written"], 1)
+        request = Request(f"http://127.0.0.1:{self.port}/api/sync", data=b"", method="POST")
+        with urlopen(request, timeout=5) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        self.assertEqual(calls, [1])
+        self.assertEqual(result["result"]["written"][0]["file"], "cycle-0945.json")
 
 
 if __name__ == "__main__":

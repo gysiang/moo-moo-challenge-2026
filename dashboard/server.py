@@ -27,6 +27,8 @@ class App:
         demo: bool,
         cloud: Optional[cloud_api.CloudClient] = None,
         guard: Optional[guard_link.GuardLink] = None,
+        sync_status: Optional[dict] = None,
+        sync_run: Optional[Any] = None,
     ) -> None:
         self.runtime = Path(runtime)
         self.config_path = Path(config_path)
@@ -34,6 +36,8 @@ class App:
         self.demo = demo
         self.cloud = cloud
         self.guard = guard
+        self.sync_status = sync_status
+        self.sync_run = sync_run
         self.approvals_file = "approvals-demo.json" if demo else "approvals.json"
         self.events_file = "guard-events-demo.jsonl" if demo else "guard-events.jsonl"
         self.history_file = "equity-history-demo.jsonl" if demo else "equity-history.jsonl"
@@ -169,6 +173,23 @@ class App:
             return {"configured": True, "error": err.message, "events": []}
         return {"configured": True, "events": cloud_api.summarize_events(rows)}
 
+    def sync_state(self) -> dict:
+        status = self.sync_status or {}
+        return {
+            "configured": self.sync_run is not None,
+            "interval": status.get("interval"),
+            "last": status.get("last"),
+        }
+
+    def sync_now(self) -> dict:
+        if self.sync_run is None:
+            return {"configured": False, "error": "artifact sync is not configured"}
+        try:
+            result = self.sync_run()
+        except Exception as err:
+            return {"configured": True, "error": str(err)[:200]}
+        return {"configured": True, "result": result}
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "moomoo-dashboard/1"
@@ -246,6 +267,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json(HTTPStatus.OK, self.app.cloud_events(session_id, limit))
             return
+        if route == "/api/sync":
+            self._json(HTTPStatus.OK, self.app.sync_state())
+            return
         if route.startswith("/static/"):
             candidate = (STATIC / route[len("/static/"):]).resolve()
             if STATIC not in candidate.parents and candidate != STATIC:
@@ -260,6 +284,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.FORBIDDEN, {"error": "loopback only"})
             return
         route = urlparse(self.path).path
+        if route == "/api/sync":
+            self._json(HTTPStatus.OK, self.app.sync_now())
+            return
         if route not in ("/api/approve", "/api/reject"):
             self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
@@ -296,6 +323,8 @@ def serve(
     demo: bool,
     cloud: Optional[cloud_api.CloudClient] = None,
     guard: Optional[guard_link.GuardLink] = None,
+    sync_status: Optional[dict] = None,
+    sync_run: Optional[Any] = None,
     host: str = "127.0.0.1",
     port: int = 8765,
 ) -> ThreadingHTTPServer:
@@ -306,6 +335,8 @@ def serve(
         demo=demo,
         cloud=cloud,
         guard=guard,
+        sync_status=sync_status,
+        sync_run=sync_run,
     )
     handler = type("BoundHandler", (Handler,), {"app": app})
     httpd = ThreadingHTTPServer((host, port), handler)
