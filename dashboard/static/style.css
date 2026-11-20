@@ -48,6 +48,10 @@
 .scout-approval { margin-bottom: 16px; }
 .scout-approval label { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .scout-approval input { flex: none; }
+.scout-opening { margin-bottom: 24px; overflow-wrap: anywhere; }
+.scout-opening input[type="file"] { max-width: 100%; }
+.scout-opening .scout-approval-toolbar label { min-width: 0; }
+.scout-hash { overflow-wrap: anywhere; }
 .batch-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 0 18px 16px; }
 input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
 button:disabled { opacity: .45; cursor: not-allowed; }

@@ -31,7 +31,7 @@ export function sqliteScoutStore(path) {
           error_code TEXT,
           last_report TEXT NOT NULL CHECK (json_valid(last_report))
         ); PRAGMA application_id = ${APPLICATION_ID}; PRAGMA user_version = 1;`);
-      } else if (![1, 2].includes(version) || id !== APPLICATION_ID) {
+      } else if (![1, 2, 3].includes(version) || id !== APPLICATION_ID) {
         throw new Error('Not a Scout database');
       }
       if (version < 2) db.exec(`CREATE TABLE scout_approvals (
@@ -43,6 +43,17 @@ export function sqliteScoutStore(path) {
         expires_at TEXT NOT NULL,
         PRIMARY KEY (owner_id, request_id, ticket_id, proposal_hash)
       ) STRICT; PRAGMA user_version = 2;`);
+      if (version < 3) db.exec(`CREATE TABLE scout_baselines (
+        owner_id TEXT NOT NULL,
+        trading_day TEXT NOT NULL,
+        evidence TEXT NOT NULL CHECK (json_valid(evidence)),
+        PRIMARY KEY (owner_id, trading_day)
+      ) STRICT;
+      CREATE TRIGGER scout_baselines_no_update BEFORE UPDATE ON scout_baselines
+        BEGIN SELECT RAISE(ABORT, 'Opening records are immutable'); END;
+      CREATE TRIGGER scout_baselines_no_delete BEFORE DELETE ON scout_baselines
+        BEGIN SELECT RAISE(ABORT, 'Opening records are immutable'); END;
+      PRAGMA user_version = 3;`);
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
     db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL');
@@ -80,6 +91,18 @@ export function sqliteScoutStore(path) {
             return row;
           } catch (error) { db.exec('ROLLBACK'); throw error; }
         });
+      },
+      async baseline(owner, day) {
+        try {
+          const row = db.prepare('SELECT evidence FROM scout_baselines WHERE owner_id = ? AND trading_day = ?').get(owner, day);
+          return row ? JSON.parse(row.evidence) : null;
+        } catch { throw new ScoutError('scout_storage_unavailable'); }
+      },
+      async saveBaseline(owner, day, evidence) {
+        try {
+          db.prepare('INSERT INTO scout_baselines (owner_id, trading_day, evidence) VALUES (?, ?, ?) ON CONFLICT(owner_id, trading_day) DO NOTHING').run(owner, day, JSON.stringify(evidence));
+          return JSON.parse(db.prepare('SELECT evidence FROM scout_baselines WHERE owner_id = ? AND trading_day = ?').get(owner, day).evidence);
+        } catch { throw new ScoutError('scout_storage_unavailable'); }
       },
       close() { db.close(); },
     };

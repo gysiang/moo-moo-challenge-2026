@@ -21,6 +21,8 @@
     invalid_scout_result: 'Scout evidence was incomplete, stale or mismatched. Previous results are retained.',
     scout_failed: 'Scout ended without delivering a result. No orders were placed.',
     scout_timeout: 'Scout has not delivered a confirmed result within 30 minutes. Refresh checks the existing run; it will not restart it.',
+    invalid_opening_record: 'Opening record rejected. Use the JSON template, paper account 5829804, market 100, USD, a positive equity value, and the matching trading date at 09:30 ET. Source reference and evidence are required; future or midday balances are not accepted.',
+    opening_record_conflict: 'A different opening record already exists for that account and date. It was not replaced. Refresh to inspect the saved evidence.',
     ticket_generation_unavailable: 'Local ticket checks could not finish. Check Python and project dependencies, then Refresh to retry this result without starting another Scout. Previous results are retained.',
   };
   const approvalReasons = {
@@ -34,7 +36,7 @@
   };
   Object.assign(messages, approvalReasons);
   const selected = new Set();
-  let current = null, working = false, error = '', timer = null, lastView = null;
+  let current = null, working = false, error = '', notice = '', timer = null, lastView = null;
 
   async function requestJson(action, body) {
     const init = {cache: 'no-store', credentials: 'same-origin', headers: {'Accept': 'application/json'}, signal: AbortSignal.timeout(65000)};
@@ -82,20 +84,63 @@
       ${enabled ? `<p class="muted">Select eligible tickets, then approve the selection. Approvals are hash-bound, expire after ${esc(current.approvals.ttl_minutes / 60)} hours, and stay in SQLite—not the Guard queue. Gate results below are the original assessment, not current execution eligibility.</p><div class="scout-approval-toolbar"><button id="scout-approve" class="primary" disabled>Approve selected (0)</button><span class="muted">Records approval only. No orders or Guard calls.</span></div>` : ''}
       <p class="muted">Evidence assessed as of ${esc(clock(cycle.generated_at))}. ${cycle.historical ? 'Historical assessment using current rules and the original evidence timestamps; not current trading eligibility.' : 'This assessment is saved with this Scout run; refresh does not renew evidence or approve tickets.'}</p>
       ${cycle.baseline_verified === false ? '<p class="banner bad">R8: Verified day-opening equity is unavailable. A current account balance is not an opening baseline.</p>' : ''}
+      ${cycle.baseline ? `<p class="banner">R8 assessed against ${usd(Number(cycle.baseline.opening_equity))} opening equity for ${esc(cycle.baseline.trading_day)} · Equity change ${(cycle.daily_pnl_pct * 100).toFixed(2)}%. The configured daily-stop rule and all other gates still apply.</p><p class="muted scout-hash">Operator-attested source: ${esc(cycle.baseline.source_reference)}<br><span class="scout-hash">Import SHA-256: ${esc(cycle.baseline.sha256)}</span></p>` : ''}
       ${rows ? `<div class="table-wrap"><table id="scout-decisions"><thead><tr><th>Ticket</th><th>Symbol</th><th>Side</th><th class="num">Qty</th><th class="num">Limit</th><th class="num">Est cost</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="empty">No ticket candidates were generated. See the strategy skip reasons below.</p>'}
       ${cycle.skipped.length ? `<details class="scout-skips"><summary>Strategy skip reasons (${cycle.skipped.length})</summary><div class="table-wrap"><table><tr><th>Symbol</th><th>Reason</th></tr>${cycle.skipped.map(row => `<tr><td>${esc(row.symbol)}</td><td>${esc(row.reason)}</td></tr>`).join('')}</table></div></details>` : ''}
     </section>`;
   }
 
+  function openingPanel() {
+    if (!local || !current?.baselines?.enabled) return '';
+    const baseline = current.baselines.current;
+    return `<section class="scout-opening" aria-labelledby="scout-opening-heading"><h3 id="scout-opening-heading">Opening-equity evidence · paper account 5829804</h3>
+      <p>${baseline ? `<strong>${usd(Number(baseline.opening_equity))}</strong> · ${esc(baseline.trading_day)} · Operator-attested broker opening record` : `No opening record for ${esc(current.baselines.current_day)} (ET). R8 stays blocked without matching evidence.`}</p>
+      ${baseline ? `<p class="muted">Effective ${esc(clock(baseline.as_of))} · Imported ${esc(clock(baseline.imported_at))}<br>Source: ${esc(baseline.source_reference)}<br><span class="scout-hash">Import SHA-256: ${esc(baseline.sha256)}</span></p>` : ''}
+      ${current.baselines.reassessment_available ? '<p class="banner">Matching evidence is available for the saved report. Click Refresh to re-evaluate R8 at its original timestamps. This remains a historical assessment; run a new Scout for current approvable tickets.</p>' : ''}
+      <details><summary>Import a verified opening record</summary>
+        <p>This is your attestation, not independent broker verification. Use a broker opening snapshot or dated statement that establishes equity at the regular-session 09:30 ET open. Do not substitute a current balance or reconstruct a value from prior closes.</p>
+        <p class="muted">Download the blank JSON template, fill it from that evidence, and select only that file (UTF-8, up to 16 KiB). Set as_of to the effective opening time with its UTC offset, not the download time. source_reference identifies the broker record; source_evidence contains its relevant opening-equity excerpt. Keep unrelated personal details out.</p>
+        <p class="muted">The imported JSON is retained verbatim and hashed in local SQLite. Its hash identifies this import, not a separately held PDF or broker signature. One immutable record per account and ET trading date; it is never reused on another date. Importing does not approve tickets or call the Guard.</p>
+        <div class="scout-approval-toolbar"><button id="scout-opening-template">Download blank template</button><label>Opening record <input id="scout-opening-file" type="file" accept=".json,application/json"></label><button id="scout-opening-import" disabled>Review and import</button></div>
+      </details></section>`;
+  }
+
+  function downloadOpeningTemplate() {
+    const source = {version: 1, kind: 'broker_opening_equity', account_id: '5829804', market: 100, currency: 'USD',
+      trading_day: current.baselines.current_day, as_of: '', opening_equity: '', source_reference: '', source_evidence: ''};
+    const url = URL.createObjectURL(new Blob([JSON.stringify(source, null, 2) + '\n'], {type: 'application/json'}));
+    const link = document.createElement('a');
+    link.href = url; link.download = 'opening-record-template.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function importOpening() {
+    if (working || error || !local || !current?.baselines?.enabled) return;
+    const file = document.getElementById('scout-opening-file')?.files[0];
+    if (!file) return;
+    clearTimeout(timer); working = true; notice = ''; render();
+    try {
+      if (file.size > 16384) throw new Error('Select a UTF-8 JSON opening record no larger than 16 KiB.');
+      let source_text, record;
+      try { source_text = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(await file.arrayBuffer()); record = JSON.parse(source_text); }
+      catch { throw new Error('The selected file is not valid UTF-8 JSON. Use the blank opening-record template.'); }
+      if (!record || Array.isArray(record) || typeof record !== 'object') throw new Error(messages.invalid_opening_record);
+      if (!window.confirm(`Import opening equity ${String(record.opening_equity).slice(0, 40)} ${String(record.currency).slice(0, 10)} for account ${String(record.account_id).slice(0, 40)}?\nDate: ${String(record.trading_day).slice(0, 30)}\nEffective: ${String(record.as_of).slice(0, 50)}\nSource: ${String(record.source_reference).slice(0, 300)}\n\nI verified this value against the broker opening record, not a current balance or prior-close estimate. This immutable import is my attestation, not independent verification. Trading stays disabled and the Guard halt stays in place.`)) return;
+      current = await requestJson('scout-import-opening', {source_text, confirmed: true});
+      notice = `Opening record for ${record.trading_day} saved. Refresh rechecks matching saved evidence; Run Scout retrieves a new assessment. No tickets were approved.`;
+    } catch (err) { error = err.message; }
+    finally { working = false; render(); schedule(); }
+  }
+
   function report(value) {
     if (!value) {
-      content.innerHTML = '<p class="empty">Run Scout to retrieve paper-account facts, trend measurements and dated news. Results appear here automatically.</p><p class="muted">No orders or Guard execution. Ticket approvals, when available, require an explicit selection.</p>';
+      content.innerHTML = openingPanel() + '<p class="empty">Run Scout to retrieve paper-account facts, trend measurements and dated news. Results appear here automatically.</p><p class="muted">No orders or Guard execution. Ticket approvals, when available, require an explicit selection.</p>';
       return;
     }
     const account = value.account;
     document.getElementById('scout-report-time').textContent = clock(value.as_of);
     const rows = value.symbols.map(row => `<tr><td class="sym">${esc(row.symbol)}</td><td class="num">${usd(row.last_price)}</td><td class="num">${money(row.ema8)}</td><td class="num">${money(row.ema21)}</td><td><span class="pill ${row.trend_up ? 'approved' : ''}">${row.trend_up ? 'EMA8 > EMA21' : 'No upward cross'}</span></td><td class="scout-news">${row.news.length ? row.news.map(item => `<p>${esc(item.title)}<br><span class="muted">${esc(clock(item.as_of))} · ${esc(item.source)}</span></p>`).join('') : '<span class="muted">No dated news supplied</span>'}</td></tr>`).join('');
-    content.innerHTML = `<p class="muted">${value.ticket_checks === 'completed' ? 'R1–R11 assessment saved · trading remains disabled · no orders or Guard execution.' : 'Read-only research · not an approved ticket · R1–R11 ticket checks have not run · trading remains disabled.'}</p>
+    content.innerHTML = openingPanel() + `<p class="muted">${value.ticket_checks === 'completed' ? 'R1–R11 assessment saved · trading remains disabled · no orders or Guard execution.' : 'Read-only research · not an approved ticket · R1–R11 ticket checks have not run · trading remains disabled.'}</p>
       ${ticketReview(value)}
       <div class="scout-summary"><span>Equity <strong>${usd(account.equity)}</strong></span><span>Cash <strong>${usd(account.cash)}</strong></span><span>${account.positions.length} positions</span><span>${account.open_orders.length} open orders</span></div>
       ${rows ? `<div class="table-wrap"><table><tr><th>Symbol</th><th class="num">Last close</th><th class="num">EMA8</th><th class="num">EMA21</th><th>Trend</th><th>News evidence</th></tr>${rows}</table></div>` : '<p class="empty">No symbol research was delivered. Scout skips research when the regular US session is closed; an empty result alone does not verify market status.</p>'}
@@ -118,7 +163,7 @@
       current?.status === 'completed' ? `Scout complete · ${clock(current.report?.as_of)}${cooldown ? ` · next run after ${clock(current.next_run_at)}` : ''}` :
       active.has(current?.status) ? `Scout ${current.status} · results appear automatically · started ${clock(current.started_at)}` :
       current ? 'Run Scout for fresh research. Refresh checks this run only. No orders will be placed.' : 'Checking Scout availability…';
-    statusElement.textContent = fixture + (error || label);
+    statusElement.textContent = fixture + (error || notice || label);
     if (current !== lastView || !content.innerHTML) { selected.clear(); lastView = current; report(current?.report ?? null); }
     renderSelection();
   }
@@ -129,6 +174,10 @@
       input.disabled = working || !!error || !item?.eligible;
       input.checked = selected.has(input.dataset.scoutTicket);
     }
+    const openingFile = document.getElementById('scout-opening-file');
+    if (openingFile) openingFile.disabled = working || !!error;
+    const importButton = document.getElementById('scout-opening-import');
+    if (importButton) importButton.disabled = working || !!error || !openingFile?.files.length;
     const approveButton = document.getElementById('scout-approve');
     if (approveButton) {
       approveButton.disabled = working || !!error || !selected.size;
@@ -141,6 +190,7 @@
     const tickets = current.approvals.tickets.filter(item => selected.has(item.ticket_id) && item.eligible)
       .map(({ticket_id, proposal_hash}) => ({ticket_id, proposal_hash}));
     if (!tickets.length || !window.confirm(`Record approval for ${tickets.length} selected ticket(s)?\n\nTrading stays disabled and the Guard halt stays in place. No orders will be sent.`)) return;
+    notice = '';
     clearTimeout(timer);
     working = true;
     render();
@@ -151,11 +201,16 @@
 
   content.addEventListener('change', event => {
     const input = event.target;
+    if (input.id === 'scout-opening-file') { renderSelection(); return; }
     if (!input.matches('[data-scout-ticket]') || input.disabled) return;
     if (input.checked) selected.add(input.dataset.scoutTicket); else selected.delete(input.dataset.scoutTicket);
     renderSelection();
   });
-  content.addEventListener('click', event => { if (event.target.closest('#scout-approve')) approveSelected(); });
+  content.addEventListener('click', event => {
+    if (event.target.closest('#scout-approve')) approveSelected();
+    if (event.target.closest('#scout-opening-import')) importOpening();
+    if (event.target.closest('#scout-opening-template')) downloadOpeningTemplate();
+  });
 
   function schedule() {
     clearTimeout(timer);
@@ -165,6 +220,7 @@
 
   async function sync() {
     if (working || !current?.request_id) return;
+    notice = '';
     working = true;
     render();
     try { current = await requestJson('scout-sync', {request_id: current.request_id}); error = ''; }
@@ -177,10 +233,10 @@
     clearTimeout(timer);
     working = true;
     render();
-    try { current = await requestJson('scout-status'); error = ''; }
+    try { current = await requestJson('scout-status'); error = ''; notice = ''; }
     catch (err) { error = err.message; }
     finally { working = false; render(); }
-    if (!error && (active.has(current?.status) || (reconcileCompleted && local && current?.status === 'completed' && current.report?.ticket_checks === 'not_run'))) await sync();
+    if (!error && (active.has(current?.status) || (reconcileCompleted && local && current?.status === 'completed' && (current.report?.ticket_checks === 'not_run' || current.baselines?.reassessment_available)))) await sync();
     else schedule();
   }
 
@@ -188,7 +244,7 @@
     if (button.disabled || !current) return;
     clearTimeout(timer);
     working = true;
-    error = '';
+    error = ''; notice = '';
     render();
     try {
       current = await requestJson('scout-start', {request_id: crypto.randomUUID().replaceAll('-', ''), version: current.version});

@@ -16,6 +16,8 @@ import {fileURLToPath} from 'node:url';
 import {artifact, fixture, approvalFixtureReport} from '../dev/hosted-scout-fixture.mjs';
 import {scoutApprovals} from '../dashboard/scout-approvals.mjs';
 import {ticketEvaluator} from '../dashboard/scout-tickets.mjs';
+import {scoutBaselines} from '../dashboard/scout-baselines.mjs';
+import {createHash} from 'node:crypto';
 import {scoutReport} from '../functions/scout-report.mjs';
 
 const ID = 'a'.repeat(32), NEXT = 'b'.repeat(32);
@@ -287,6 +289,179 @@ test('concurrent ticket collectors cannot overwrite a newer request or dispatch 
   assert.equal(f.counts.sends, 1);
 });
 
+function openingBody(changes = {}) {
+  return {confirmed: true, source_text: JSON.stringify({version: 1, kind: 'broker_opening_equity',
+    account_id: '5829804', market: 100, currency: 'USD', trading_day: '2026-11-20',
+    as_of: '2026-11-20T09:30:00-05:00', opening_equity: '100000',
+    source_reference: 'SYNTHETIC broker opening fixture', source_evidence: 'SYNTHETIC equity USD 100000 at the 09:30 ET open for account 5829804.', ...changes}, null, 2)};
+}
+async function baselineWorkspace(t, now = () => NOW) {
+  const w = await workspace(t), store = sqliteScoutStore(w.path), f = fixture({now});
+  w.cleanup.push(() => store.close());
+  f.baselines = scoutBaselines({store, now});
+  f.evaluateTickets = ticketEvaluator();
+  f.approvals = scoutApprovals({store, now});
+  return {...w, store, f, call: client(store, f)};
+}
+
+test('opening import preserves exact evidence and hash, is immutable and isolated across restart', async t => {
+  const w = await baselineWorkspace(t), body = openingBody();
+  const first = await w.call('scout-import-opening', body);
+  assert.equal(first.status, 200);
+  assert.equal(first.data.status, 'idle');
+  assert.equal(first.data.trading_enabled, false);
+  const saved = await w.store.baseline('owner', '2026-11-20');
+  assert.equal(saved.source_text, body.source_text);
+  assert.equal(saved.sha256, createHash('sha256').update(body.source_text).digest('hex'));
+  assert.equal(saved.verification, 'operator_attested');
+  assert.equal(first.data.baselines.current.sha256, saved.sha256);
+  assert.equal(first.data.baselines.current.source_text, undefined);
+  assert.equal(await w.store.read('owner'), null);
+  assert.deepEqual(await w.store.approvals('owner', ID), []);
+  assert.equal((await w.call('scout-import-opening', body)).status, 200);
+  assert.equal((await w.call('scout-import-opening', openingBody({opening_equity: '100001'}))).data.error, 'opening_record_conflict');
+  assert.deepEqual(await w.store.baseline('owner', '2026-11-20'), saved);
+  const reopened = sqliteScoutStore(w.path);
+  try {
+    assert.deepEqual(await reopened.baseline('owner', '2026-11-20'), saved);
+    assert.equal(await reopened.baseline('other', '2026-11-20'), null);
+    assert.equal(await reopened.baseline('owner', '2026-11-19'), null);
+  } finally { reopened.close(); }
+  const db = new DatabaseSync(w.path);
+  try {
+    assert.throws(() => db.exec("UPDATE scout_baselines SET evidence = '{}'"), /immutable/);
+    assert.throws(() => db.exec('DELETE FROM scout_baselines'), /immutable/);
+  } finally { db.close(); }
+  assert.deepEqual(w.f.counts, {creates: 0, sends: 0, collects: 0});
+});
+
+test('invalid or unconfirmed imports write nothing and never call cloud', async t => {
+  const w = await baselineWorkspace(t);
+  for (const body of [null, [], {...openingBody(), confirmed: false}, {...openingBody(), token: 'not-a-credential'},
+    openingBody({account_id: 'wrong'}), openingBody({as_of: '2026-11-20T10:00:00-05:00'}),
+    openingBody({trading_day: '2026-11-19'}), openingBody({opening_equity: 'NaN'}),
+    {confirmed: true, source_text: 'x'.repeat(17000)}]) {
+    await assert.rejects(w.f.baselines.import('owner', body), {code: 'invalid_opening_record'});
+  }
+  assert.equal(await w.store.baseline('owner', '2026-11-20'), null);
+  assert.deepEqual(w.f.counts, {creates: 0, sends: 0, collects: 0});
+});
+
+test('concurrent conflicting opening imports cannot replace the first accepted evidence', async t => {
+  const w = await baselineWorkspace(t), second = sqliteScoutStore(w.path);
+  try {
+    const results = await Promise.all([w.call('scout-import-opening', openingBody()),
+      client(second, {...w.f, baselines: scoutBaselines({store: second, now: () => NOW})})('scout-import-opening', openingBody({opening_equity: '99999'}))]);
+    assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
+    assert.ok(['100000', '99999'].includes((await w.store.baseline('owner', '2026-11-20')).record.opening_equity));
+  } finally { second.close(); }
+});
+
+test('new Scout uses matching baseline for R8 but still needs explicit approval', async t => {
+  const w = await baselineWorkspace(t), collect = w.f.cloud.collect;
+  w.f.cloud.collect = async run => {
+    const result = await collect(run);
+    result.payload.market_raw.symbols['US.SPY'].market_cap = 1e12;
+    return result;
+  };
+  await w.call('scout-import-opening', openingBody());
+  await w.call('scout-start', {request_id: ID, version: 0});
+  const result = (await w.call('scout-sync', {request_id: ID})).data;
+  assert.equal(result.report.cycle.baseline_verified, true);
+  assert.equal(result.report.cycle.daily_pnl_pct, 0);
+  assert.deepEqual(result.report.cycle.records[0].gate.codes, ['R11_NO_APPROVAL']);
+  assert.equal(result.approvals.tickets[0].eligible, true);
+  assert.equal(result.report.cycle.historical, false);
+  assert.deepEqual(await w.store.approvals('owner', ID), []);
+  assert.equal(result.trading_enabled, false);
+});
+
+test('opening baseline selection uses ET day and never carries into the next session', async t => {
+  const w = await baselineWorkspace(t, () => Date.parse('2026-11-21T01:00:00Z'));
+  await w.call('scout-import-opening', openingBody());
+  assert.equal((await w.call('scout-status')).data.baselines.current_day, '2026-11-20');
+  assert.ok(await w.f.baselines.forTime('owner', Date.parse('2026-11-21T01:00:00Z')));
+  assert.equal(await w.f.baselines.forTime('owner', Date.parse('2026-11-23T15:00:00Z')), null);
+  assert.equal(await w.f.baselines.forTime('other', NOW), null);
+});
+
+test('importing evidence leaves old report untouched until explicit historical re-evaluation', async t => {
+  let time = NOW;
+  const w = await baselineWorkspace(t, () => time);
+  const payload = artifact(initial, NOW);
+  payload.market_raw.symbols['US.SPY'].market_cap = 1e12;
+  w.f.cloud.collect = async () => { w.f.counts.collects++; return {status: 'completed', payload}; };
+  await w.call('scout-start', {request_id: ID, version: 0});
+  const first = (await w.call('scout-sync', {request_id: ID})).data;
+  time += 86400000;
+  const imported = (await w.call('scout-import-opening', openingBody())).data;
+  assert.deepEqual(imported.report, first.report);
+  assert.equal(imported.version, first.version);
+  assert.equal(imported.baselines.current, null);
+  assert.equal(imported.baselines.reassessment_available, true);
+  await w.call('scout-status');
+  assert.equal(w.f.counts.collects, 1);
+  const revised = (await w.call('scout-sync', {request_id: ID})).data;
+  assert.equal(revised.report.cycle.baseline_verified, true);
+  assert.equal(revised.report.cycle.historical, true);
+  assert.equal(revised.report.cycle.generated_at, first.report.cycle.generated_at);
+  assert.equal(Date.parse(revised.report.cycle.evaluated_at), time);
+  assert.equal(revised.report.as_of, first.report.as_of);
+  assert.equal(revised.completed_at, first.completed_at);
+  assert.equal(revised.approvals.tickets[0].eligible, false);
+  assert.equal(revised.approvals.tickets[0].reason, 'historical_assessment');
+  assert.deepEqual(await w.store.approvals('owner', ID), []);
+  await w.call('scout-sync', {request_id: ID});
+  assert.deepEqual(w.f.counts, {creates: 1, sends: 1, collects: 2});
+});
+
+test('opening re-evaluation retains prior report on changed artifact or evaluator failure', async t => {
+  const w = await baselineWorkspace(t), payload = artifact(initial, NOW);
+  w.f.cloud.collect = async () => ({status: 'completed', payload});
+  await w.call('scout-start', {request_id: ID, version: 0});
+  const before = (await w.call('scout-sync', {request_id: ID})).data;
+  await w.call('scout-import-opening', openingBody());
+  payload.cash.data.balance++;
+  assert.equal((await w.call('scout-sync', {request_id: ID})).data.error, 'invalid_scout_result');
+  payload.cash.data.balance--;
+  w.f.evaluateTickets = ticketEvaluator(join(w.root, 'missing-python'));
+  assert.equal((await client(w.store, w.f)('scout-sync', {request_id: ID})).data.error, 'ticket_generation_unavailable');
+  assert.deepEqual((await w.store.read('owner')).last_report, before.report);
+  assert.equal((await w.store.read('owner')).status, 'completed');
+});
+
+test('opening import HTTP is local-only, origin protected and bounded', async t => {
+  const w = await workspace(t), f = fixture({now: () => NOW});
+  const {server, url} = await startScoutServer({databasePath: w.path, webDirectory: await web(w.root), cloud: f.cloud, port: 0, now: () => NOW});
+  w.cleanup.push(() => stop(server));
+  assert.equal((await httpCall(url, 'scout-import-opening', openingBody(), {Origin: 'https://untrusted.test'})).status, 403);
+  assert.equal((await httpCall(url, 'scout-import-opening')).status, 405);
+  assert.equal((await httpCall(url, 'scout-import-opening', {source_text: 'x'.repeat(65536), confirmed: true})).status, 413);
+  assert.equal((await httpCall(url, 'scout-import-opening', openingBody())).status, 200);
+  assert.equal((await fetch(url + '/opening-record.json')).status, 404);
+  const store = sqliteScoutStore(w.path);
+  try {
+    assert.equal((await client(store, f)('scout-import-opening', openingBody())).status, 404);
+    assert.ok(await store.baseline('local-owner', '2026-11-20'));
+  } finally { store.close(); }
+  assert.deepEqual(f.counts, {creates: 0, sends: 0, collects: 0});
+});
+
+test('version-two migration preserves approvals while adding empty baseline storage', async t => {
+  const w = await workspace(t), store = sqliteScoutStore(w.path);
+  await store.insert({...initial, status: 'completed'});
+  await store.saveApprovals('owner', 1, ID, [{ticket_id: 'test', proposal_hash: 'a'.repeat(64), approved_at: '2026-11-20T15:00:00Z', expires_at: '2026-11-21T03:00:00Z'}]);
+  store.close();
+  const db = new DatabaseSync(w.path);
+  db.exec('DROP TABLE scout_baselines; PRAGMA user_version = 2;'); db.close();
+  const migrated = sqliteScoutStore(w.path);
+  try {
+    assert.equal((await migrated.read('owner')).version, 2);
+    assert.equal((await migrated.approvals('owner', ID)).length, 1);
+    assert.equal(await migrated.baseline('owner', '2026-11-20'), null);
+  } finally { migrated.close(); }
+});
+
 function approvalBody(report, indexes = [0, 1], version = 1) {
   return {request_id: report.request_id, version, tickets: indexes.map(i => ({ticket_id: report.cycle.records[i].ticket_id, proposal_hash: report.cycle.records[i].proposal_hash}))};
 }
@@ -311,7 +486,7 @@ test('version-one SQLite migration preserves the existing run and adds isolated 
   assert.deepEqual(await store.read('owner'), initial);
   assert.deepEqual(await store.approvals('owner', ID), []);
   const check = new DatabaseSync(w.path, {readOnly: true});
-  try { assert.equal(check.prepare('PRAGMA user_version').get().user_version, 2); } finally { check.close(); }
+  try { assert.equal(check.prepare('PRAGMA user_version').get().user_version, 3); } finally { check.close(); }
 });
 
 test('batch approvals are durable, hash-bound, idempotent and never dispatch or change gate results', async t => {

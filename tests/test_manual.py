@@ -13,7 +13,7 @@ from dashboard import state
 from dashboard.cloud import CloudClient, CloudError
 from dashboard.manual import ManualActions, normalize_account, atomic_json
 from dashboard.server import App, serve
-from dashboard.scout_tickets import generate_tickets
+from dashboard.scout_tickets import generate_tickets, validate_opening_record
 from guard.events import flow_state
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -400,6 +400,80 @@ class TicketReviewTests(unittest.TestCase):
         cycle = self.review()
         self.assertFalse(cycle["baseline_verified"])
         self.assertTrue(all("R11_NO_APPROVAL" in r["gate"]["codes"] for r in cycle["records"]))
+
+    def opening_record(self, **changes):
+        return {"version": 1, "kind": "broker_opening_equity", "account_id": "5829804", "market": 100,
+                "currency": "USD", "trading_day": "2026-11-20", "as_of": "2026-11-20T09:30:00-05:00",
+                "opening_equity": "100000.000000", "source_reference": "SYNTHETIC broker opening fixture",
+                "source_evidence": "SYNTHETIC ONLY: equity USD 100000 at 09:30 ET, account 5829804.", **changes}
+
+    def trusted_review(self, **changes):
+        baseline = validate_opening_record(json.dumps(self.opening_record(**changes)), NOW.isoformat())
+        return generate_tickets(self.payload, self.run, NOW.isoformat(), baseline=baseline)
+
+    def test_attested_opening_equity_evaluates_r8_without_approving(self):
+        cycle = self.trusted_review()
+        self.assertTrue(cycle["baseline_verified"])
+        self.assertEqual(cycle["daily_pnl_pct"], 0)
+        self.assertEqual(cycle["baseline"]["verification"], "operator_attested")
+        self.assertNotIn("source_text", cycle["baseline"])
+        for record in cycle["records"]:
+            self.assertEqual(record["status"], "AWAITING_APPROVAL")
+            self.assertEqual(record["gate"]["codes"], ["R11_NO_APPROVAL"])
+        self.assertFalse(cycle["trading_enabled"])
+        self.assertTrue(cycle["review_only"])
+
+    def test_opening_equity_does_not_reset_losses_or_bypass_stop(self):
+        for equity in ("98000", "97000"):
+            with self.subTest(equity=equity):
+                self.payload["cash"]["data"].update(total_asset=equity, balance="96000")
+                cycle = self.trusted_review()
+                self.assertAlmostEqual(cycle["daily_pnl_pct"], float(equity) / 100000 - 1)
+                for record in cycle["records"]:
+                    self.assertIn("R8_DAILY_STOP", record["gate"]["codes"])
+                    self.assertIn("R11_NO_APPROVAL", record["gate"]["codes"])
+                    self.assertNotIn("R8_DAILY_BASELINE_UNVERIFIED", record["gate"]["codes"])
+
+    def test_previous_day_record_remains_unverified_for_current_evidence(self):
+        cycle = self.trusted_review(trading_day="2026-11-19", as_of="2026-11-19T09:30:00-05:00")
+        self.assertFalse(cycle["baseline_verified"])
+        self.assertIsNone(cycle["daily_pnl_pct"])
+        self.assertTrue(all("R8_DAILY_BASELINE_UNVERIFIED" in r["gate"]["codes"] for r in cycle["records"]))
+
+    def test_opening_import_rejects_identity_value_source_and_time_mismatches(self):
+        invalid = [{"account_id": "other"}, {"market": 1}, {"market": True}, {"currency": "SGD"},
+                   {"version": True}, {"kind": "current_balance"}, {"opening_equity": "0"},
+                   {"opening_equity": "-1"}, {"opening_equity": "NaN"}, {"opening_equity": "Infinity"},
+                   {"opening_equity": 100000}, {"opening_equity": "1e5"}, {"opening_equity": "1.0000001"},
+                   {"source_reference": " "}, {"source_evidence": ""}, {"source_evidence": "x" * 8001},
+                   {"trading_day": "2026-11-19"}, {"as_of": "2026-11-20T15:00:00Z"},
+                   {"as_of": "2026-11-20T09:30:00"}, {"as_of": "2026-11-20T14:30:01Z"},
+                   {"as_of": "2026-11-21T14:30:00Z", "trading_day": "2026-11-21"},
+                   {"as_of": "2026-11-26T14:30:00Z", "trading_day": "2026-11-26"},
+                   {"as_of": "2026-11-23T14:30:00Z", "trading_day": "2026-11-23"}, {"unknown": "x"}]
+        for change in invalid:
+            with self.subTest(change=change), self.assertRaises((ValueError, TypeError)):
+                validate_opening_record(json.dumps(self.opening_record(**change)), NOW.isoformat())
+
+    def test_source_is_retained_exactly_and_duplicate_fields_or_tampering_fail(self):
+        source = json.dumps(self.opening_record(), indent=2) + "\n"
+        baseline = validate_opening_record(source, NOW.isoformat())
+        self.assertEqual(baseline["source_text"], source)
+        self.assertEqual(len(baseline["sha256"]), 64)
+        for invalid in (source.replace('"version": 1', '"version": 1, "version": 1'), "[]", "null", source + "x" * 17000):
+            with self.subTest(invalid=invalid[:50]), self.assertRaises(ValueError):
+                validate_opening_record(invalid, NOW.isoformat())
+        baseline["record"]["opening_equity"] = "1"
+        with self.assertRaises(ValueError):
+            generate_tickets(self.payload, self.run, NOW.isoformat(), baseline=baseline)
+
+    def test_et_day_and_dst_opening_offset_are_used(self):
+        source = json.dumps(self.opening_record(trading_day="2026-11-02", as_of="2026-11-02T14:30:00Z"))
+        self.assertEqual(validate_opening_record(source, NOW.isoformat())["record"]["trading_day"], "2026-11-02")
+        summer = json.dumps(self.opening_record(trading_day="2026-10-30", as_of="2026-10-30T13:30:00Z"))
+        self.assertEqual(validate_opening_record(summer, NOW.isoformat())["record"]["trading_day"], "2026-10-30")
+        with self.assertRaises(ValueError):
+            validate_opening_record(summer.replace("13:30", "14:30"), NOW.isoformat())
 
     def test_stale_news_keeps_original_timestamp_and_explains_rejection(self):
         stamp = (NOW - timedelta(days=5)).isoformat()
