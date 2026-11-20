@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from gate import Approval, load_mandate
 from guard.bridge import proposal_from_record
-from guard.events import mandated_exits_in_run
+from guard.events import mandated_exits_in_run, flow_state
 from scout.account import load_account, parse_time, save_approval
 from scout.slots import market_session
 
@@ -210,6 +210,8 @@ def drawdown_stats(points: list[dict], equity: float) -> dict:
 
 
 def open_orders(account: dict, events: list[dict]) -> list[dict]:
+    if account.get("orders_complete"):
+        return [{"kind": "BROKER", **row} for row in account.get("working_orders", [])]
     reconciled = {
         row.get("order_id")
         for row in events
@@ -299,8 +301,10 @@ def decision_rows(
                 {
                     "cycle": cycle["file"],
                     "slot": payload.get("slot"),
+                    "request_id": payload.get("request_id"),
                     "generated_at": payload.get("generated_at"),
                     "ticket_id": ticket,
+                    "proposal_hash": record.get("proposal_hash"),
                     "side": record.get("side"),
                     "symbol": record.get("symbol"),
                     "sleeve": record.get("sleeve"),
@@ -343,8 +347,9 @@ def build_state(
     triggers_file: str = "guard-triggers.jsonl",
 ) -> dict:
     now = now or datetime.now(timezone.utc)
-    account = read_json(runtime / "account-5829804.json") or {}
-    metrics = read_json(runtime / "metrics.json") or {}
+    snapshot = read_json(runtime / "dashboard-snapshot.json") or {}
+    account = snapshot.get("account") or read_json(runtime / "account-5829804.json") or {}
+    metrics = snapshot.get("metrics") or read_json(runtime / "metrics.json") or {}
     approvals = load_approvals(runtime / approvals_file)
     rejections = load_rejections(runtime / rejections_file)
     triggers = load_triggers(runtime / triggers_file)
@@ -366,12 +371,14 @@ def build_state(
         "market": market_session(now),
         "has_snapshot": bool(account),
         "account_id": account.get("account_id"),
-        "account_as_of": metrics.get("as_of"),
+        "account_as_of": account.get("as_of"),
+        "scout_request_id": snapshot.get("scout_request_id"),
+        "baseline_verified": account.get("baseline_verified", bool(account.get("day_open_equity"))),
         "kpi": {
             "equity": round(equity, 2),
             "cash": round(cash, 2),
             "market_value": round(sum(p["market_value"] for p in positions), 2),
-            "day_pnl_pct": (equity / day_open - 1) if day_open else 0.0,
+            "day_pnl_pct": ((equity / day_open - 1) if day_open else 0.0) if account.get("baseline_verified", True) else None,
             "total_pnl": round(equity - baseline, 2),
             "total_pnl_pct": ((equity / baseline - 1) if baseline else 0.0),
             "baseline": baseline,
@@ -386,6 +393,7 @@ def build_state(
         "equity_series": series,
         "positions": positions,
         "open_orders": open_orders(account, events),
+        "filled_orders": [row for row in account.get("orders", []) if row.get("filled_quantity", 0) > 0],
         "decisions": decisions,
         "approvals": approvals,
         "counts": {
@@ -398,8 +406,7 @@ def build_state(
             "ready": sum(1 for d in decisions if d["status"] == READY),
         },
         "guard": {
-            "halted": any(e.get("event") == "HALTED" for e in events),
-            "kill_switch": any(e.get("event") == "KILL_SWITCH" for e in events),
+            **flow_state(runtime / events_file),
             "events": len(events),
         },
         "limits": limits,

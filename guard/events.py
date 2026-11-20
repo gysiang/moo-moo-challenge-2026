@@ -76,6 +76,22 @@ def read_events(path: str | Path) -> list[dict[str, Any]]:
     return events
 
 
+def flow_state(path: str | Path) -> dict[str, bool]:
+    halted = killed = False
+    try:
+        events = read_events(path) if Path(path).exists() else []
+        for row in events:
+            if row.get("event") in ("HALTED", "ORDER_UNKNOWN"):
+                halted = True
+            elif row.get("event") == "KILL_SWITCH":
+                killed = True
+            elif row.get("event") == "RESUME":
+                halted = killed = False
+    except (OSError, ValueError, AttributeError):
+        halted = True
+    return {"halted": halted, "kill_switch": killed}
+
+
 def mandated_exits_in_run(path: str | Path, run_key: str) -> int:
     file = Path(path)
     if not run_key or not file.exists():

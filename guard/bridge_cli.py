@@ -19,7 +19,7 @@ from guard.bridge import (
     record_resume,
     record_submission,
 )
-from guard.events import EventLog, mandated_exits_in_run
+from guard.events import EventLog, mandated_exits_in_run, flow_state
 from scout.account import load_account
 
 
@@ -49,6 +49,14 @@ def _mandate(path: str) -> Optional[ExitMandate]:
 
 
 def cmd_prepare(args: argparse.Namespace) -> int:
+    safety = flow_state(args.log)
+    if safety["halted"] or safety["kill_switch"]:
+        plan = {"status": "REJECTED", "ticket_id": args.ticket, "reason": "GUARD_HALTED",
+                "gate": {"passed": False, "codes": ["GUARD_HALTED"], "checked": []}}
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(plan, sort_keys=True), encoding="utf-8")
+        print(f"REJECTED {args.ticket} GUARD_HALTED")
+        return 2
     now = _now(args.now)
     cycle = json.loads(Path(args.cycle).read_text(encoding="utf-8"))
     record = _find_record(cycle, args.ticket)

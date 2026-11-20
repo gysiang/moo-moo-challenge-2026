@@ -52,7 +52,51 @@ const etDay = (iso) => {
     : "—";
 };
 
+const selectedTickets = new Map();
 let state = null;
+
+function approvalBlock(s) {
+  if (STATIC_MODE || s.demo) return "Read-only / demo: no orders";
+  if (s.guard?.halted || s.guard?.kill_switch) return "Guard halted — reconcile and explicitly clear before trading";
+  if (!s.guard_link?.configured) return "Guard is not configured";
+  if (!s.batch?.protocol_ready) return "Cloud Guard batch setup is not confirmed — execution disabled";
+  if (!s.baseline_verified) return "Day-opening equity unverified — trading blocked";
+  if (s.market?.state !== "OPEN") return "US regular market is closed";
+  if (!["idle", "completed"].includes(s.batch?.status || "idle")) return "Prior batch unresolved — inspect Guard";
+  if (s.batch?.completed_at && new Date(s.account_as_of) <= new Date(s.batch.completed_at)) return "Refresh broker state after the last batch";
+  return "";
+}
+
+function eligible(d, s) {
+  const age = (Date.now() - new Date(d.generated_at).getTime()) / 60000;
+  const accountAge = (Date.now() - new Date(s.account_as_of).getTime()) / 60000;
+  return !approvalBlock(s) && d.status === "AWAITING_APPROVAL" && !d.guard_state && d.proposal_hash &&
+    (!d.request_id || d.request_id === s.scout_request_id) && age >= -5 && age <= s.limits.guard_max_snapshot_age_minutes && accountAge >= -5 &&
+    accountAge <= s.limits.guard_max_snapshot_age_minutes &&
+    (d.side !== "BUY" || new Date(s.market.closes_at).getTime() - Date.now() > 30 * 60000);
+}
+
+function renderControls(s) {
+  const action = s.manual_action || {};
+  const active = ["creating", "sending", "running", "unknown"].includes(action.status);
+  const configured = action.configured && !STATIC_MODE && !s.demo;
+  document.getElementById("run-scout").disabled = busy || active || !configured;
+  document.getElementById("refresh").disabled = busy || (!STATIC_MODE && (active || !configured));
+  const label = action.mode === "scout" ? "Scout" : "Account refresh";
+  document.getElementById("action-status").textContent = action.error ||
+    (action.status === "completed" ? `${label} complete · account as of ${clock(s.account_as_of)}` :
+      active ? `${label} ${action.status} · results appear automatically · ${action.session_id || "creating session"}` :
+      configured ? "On demand only · Run Scout for tickets · Refresh for positions and orders" : "Cloud actions disabled (demo/offline)");
+  for (const [key, choice] of selectedTickets) {
+    if (!(s.decisions || []).some(d => `${d.cycle}|${d.ticket_id}` === key && d.proposal_hash === choice.proposal_hash && eligible(d, s))) selectedTickets.delete(key);
+  }
+  const block = approvalBlock(s);
+  document.getElementById("approval-note").textContent = block || "Fresh tickets only · combined limits checked · one reconciled order at a time";
+  document.getElementById("select-tickets").disabled = busy || !!block;
+  const button = document.getElementById("approve-selected");
+  button.disabled = busy || !!block || selectedTickets.size === 0;
+  button.textContent = `Approve selected (${selectedTickets.size})`;
+}
 let openDetail = null;
 let busy = false;
 let cloudState = null;
@@ -182,6 +226,13 @@ function renderOrders(s) {
   document.getElementById("orders").innerHTML = head + body;
 }
 
+function renderFills(s) {
+  const rows = s.filled_orders || [];
+  document.getElementById("fills-count").textContent = `${rows.length} orders with fills · as of ${clock(s.account_as_of)}`;
+  document.getElementById("fills").innerHTML = `<tr><th>Order</th><th>Symbol</th><th>Side</th><th class="num">Filled / ordered</th><th class="num">Avg fill</th><th>Status</th></tr>` +
+    (rows.length ? rows.map(o => `<tr><td>${esc(o.order_id)}</td><td class="sym">${esc(o.symbol)}</td><td>${esc(o.side)}</td><td class="num">${esc(o.filled_quantity)} / ${esc(o.quantity)}</td><td class="num">${money(o.average_fill_price)}</td><td>${esc(o.status)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty">No retrieved fills. Refresh to fetch broker history.</td></tr>`);
+}
+
 function renderGuard(s) {
   const g = s.guard || {};
   const banner = g.halted || g.kill_switch
@@ -203,7 +254,10 @@ function renderGuard(s) {
     <div class="line"><span>approvals valid</span><span>${Object.keys(s.approvals || {}).length}</span></div>
     <div class="line"><span>operator rejects</span><span>${(s.counts || {}).operator_rejected ?? 0}</span></div>
     ${mandate}
-    <div class="line"><span>execution</span><span>${(s.guard_link || {}).configured ? esc(s.guard_link.session_id) : "manual Guard run only"}</span></div>`;
+    <div class="line"><span>execution</span><span>${esc(approvalBlock(s) || "per-selection cloud batch")}</span></div>
+    <div class="line"><span>latest batch</span><span>${esc(s.batch?.status || "none")}</span></div>
+    ${s.batch?.error ? `<div class="banner bad">${esc(s.batch.error)}</div>` : ""}
+    ${(s.batch?.outcomes || []).map(o => `<div class="line"><span>${esc(o.ticket_id)}</span><span>${esc(o.status)}${o.order_id ? ` · ${esc(o.order_id)}` : ""}</span></div>`).join("")}`;
 }
 
 const pillClass = (status) =>
@@ -233,20 +287,11 @@ function renderDecisions(s) {
     const key = `${d.cycle}|${d.ticket_id}`;
     const codes = (d.gate_codes || []).join(", ") || "ok";
     const short = (d.gate_codes || []).map((c) => String(c).split("_")[0]).join(", ") || "ok";
-    const canApprove = !STATIC_MODE && d.status === "AWAITING_APPROVAL";
+    const canApprove = eligible(d, s);
     const canReject = !STATIC_MODE && d.status === "AWAITING_APPROVAL";
-    const canRunGuard =
-      !STATIC_MODE && d.status === "APPROVED" && guardOn && (!d.guard_state || d.guard_state === "rejected");
-    const canRunExit =
-      !STATIC_MODE && guardOn && mandateOn && d.status === "READY" &&
-      d.side === "SELL" && d.exit_reason && (!d.guard_state || d.guard_state === "rejected");
     const action = [
       canApprove
         ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Approve${guardOn ? " + Guard" : ""}</button>`
-        : canRunGuard
-        ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Run Guard</button>`
-        : canRunExit
-        ? `<button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Execute exit</button>`
         : "",
       canReject
         ? `<button class="ghost" data-reject="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Reject</button>`
@@ -254,7 +299,7 @@ function renderDecisions(s) {
     ].filter(Boolean).join(" ");
     const main = `<tr class="row-toggle" data-row="${esc(key)}">
       <td class="col-time">${clock(d.generated_at)}</td>
-      <td>${esc(d.ticket_id)}</td>
+      <td>${canApprove ? `<input type="checkbox" data-select="${esc(key)}" aria-label="Select ${esc(d.ticket_id)}" ${selectedTickets.has(key) ? "checked" : ""}> ` : ""}${esc(d.ticket_id)}</td>
       <td class="side-${esc((d.side || "").toLowerCase())}">${esc(d.side)}</td>
       <td class="sym">${esc(d.symbol)}</td>
       <td class="num">${d.quantity ?? "—"}</td>
@@ -286,9 +331,9 @@ function renderDecisions(s) {
         <div>
           <h4>Evidence</h4>
           <ul class="evidence">${evidence || "<li>none</li>"}</ul>
-          ${canApprove || canRunGuard || canRunExit ? `<div class="approve-box">
-            <button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">${canRunExit ? "Execute this exit" : canRunGuard ? "Run Guard now" : "Approve this ticket"}</button>
-            <span class="muted">${canRunExit ? "pre-authorized full exit · starts the Guard session · the gate re-checks everything" : guardOn ? "writes approvals.json · starts the Guard session · the gate re-checks everything" : "writes approvals.json · no order sent"}</span>
+          ${canApprove ? `<div class="approve-box">
+            <button class="primary" data-approve="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Approve this ticket</button>
+            <span class="muted">Hash-bound approval · Guard re-checks every rule</span>
           </div>` : ""}
           ${canReject ? `<div class="approve-box">
             <button class="ghost" data-reject="${esc(d.ticket_id)}" data-cycle="${esc(d.cycle)}">Reject this ticket</button>
@@ -329,15 +374,17 @@ function render(s) {
   document.getElementById("account-id").textContent = s.account_id || "—";
   document.getElementById("mode").innerHTML = STATIC_MODE
     ? `PAPER · <span class="demo-badge">READ-ONLY SNAPSHOT</span>`
-    : s.demo
-    ? `DEMO <span class="demo-badge">SYNTHETIC DATA</span>`
-    : "LIVE";
-  document.getElementById("as-of").textContent = clock(s.as_of);
+    : s.verification_fixture || s.demo
+    ? `DEMO <span class="demo-badge">SYNTHETIC DATA · NO BROKER</span>`
+    : "PAPER";
+  document.getElementById("as-of").textContent = clock(s.account_as_of || s.as_of);
+  renderControls(s);
   renderSession(s);
   renderKpis(s);
   renderChart(s);
   renderPositions(s);
   renderOrders(s);
+  renderFills(s);
   renderGuard(s);
   renderDecisions(s);
 }
@@ -452,42 +499,49 @@ async function load() {
   }
 }
 
-async function approve(ticketId, cycleFile, button) {
-  if (STATIC_MODE) {
-    toast("Read-only snapshot — approvals run from the local operator dashboard.", true);
-    return;
-  }
-  if (busy) return;
-  const ok = confirm(
-    `Approve ${ticketId}?\n\nThis writes a hash-bound approval to runtime/approvals.json and starts the Guard agent.\nThe Guard re-runs the rule gate before anything is sent; it never widens the ticket.`
-  );
-  if (!ok) return;
+async function approve(ticketId, cycleFile) {
+  const row = state?.decisions.find(d => d.ticket_id === ticketId && d.cycle === cycleFile);
+  if (row) await approveBatch([{ticket_id: ticketId, cycle_file: cycleFile, proposal_hash: row.proposal_hash}]);
+}
+
+async function approveBatch(tickets) {
+  if (STATIC_MODE || busy || !tickets.length || approvalBlock(state)) return;
+  const rows = tickets.map(t => state.decisions.find(d => d.ticket_id === t.ticket_id && d.cycle === t.cycle_file));
+  if (rows.some(d => !d || !eligible(d, state))) return toast("Selection changed or expired. Reload and review.", true);
+  const details = rows.map(d => `${d.ticket_id}: ${d.side} ${d.quantity} ${d.symbol} @ ${usd(d.limit_price)}`).join("\n");
+  if (!confirm(`Approve these ${tickets.length} paper order(s)?\n\n${details}\n\nGuard re-checks combined limits, then executes serially with reconciliation. No resizing or automatic retries.`)) return;
   busy = true;
-  if (button) button.disabled = true;
+  renderControls(state);
   try {
-    const res = await fetch("/api/approve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ticket_id: ticketId, cycle_file: cycleFile }),
-    });
+    const res = await fetch("/api/approve-batch", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({tickets})});
     const body = await res.json();
-    if (!res.ok || !body.ok) {
-      toast(body.error || "approval failed", true);
-    } else if ((body.guard || {}).triggered) {
-      toast(`Approved ${ticketId} · Guard run started (${body.guard.session_id})`);
-      await load();
-    } else if (body.guard && body.guard.configured === false) {
-      toast(`Approved ${ticketId} until ${clock(body.expires_at)} · guard link disabled`);
-      await load();
-    } else {
-      toast(`Approved ${ticketId}, but the Guard did not start: ${(body.guard || {}).error || "unknown"}`, true);
-      await load();
-    }
+    if (!res.ok || !body.ok) throw new Error(body.error || "Batch was not accepted");
+    selectedTickets.clear();
+    toast(`Approved ${tickets.length} tickets · Guard batch ${body.status}`);
   } catch (err) {
-    toast("approval error: " + err.message, true);
+    toast(`${err.message} · Check batch status before retrying.`, true);
   } finally {
-    if (button) button.disabled = false;
     busy = false;
+    await load();
+    await loadCloud();
+  }
+}
+
+async function startAction(mode) {
+  if (STATIC_MODE || busy) return;
+  busy = true;
+  renderControls(state);
+  try {
+    const res = await fetch(`/api/${mode}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+    const body = await res.json();
+    if (!res.ok || !body.ok) throw new Error(body.error || "Action not accepted");
+    toast(`${mode === "scout" ? "Scout" : "Account refresh"} started; results will appear automatically.`);
+  } catch (err) {
+    toast(`${err.message} · Inspect action status before retrying.`, true);
+  } finally {
+    busy = false;
+    await load();
+    await loadCloud();
   }
 }
 
@@ -526,6 +580,15 @@ async function reject(ticketId, cycleFile, button) {
 }
 
 document.addEventListener("click", (event) => {
+  const checkbox = event.target.closest("[data-select]");
+  if (checkbox) {
+    const key = checkbox.dataset.select;
+    const row = state.decisions.find(d => `${d.cycle}|${d.ticket_id}` === key);
+    if (checkbox.checked && row && eligible(row, state)) selectedTickets.set(key, {ticket_id: row.ticket_id, cycle_file: row.cycle, proposal_hash: row.proposal_hash});
+    else selectedTickets.delete(key);
+    renderControls(state);
+    return;
+  }
   const approveBtn = event.target.closest("[data-approve]");
   if (approveBtn) {
     event.stopPropagation();
@@ -558,15 +621,19 @@ document.addEventListener("click", (event) => {
   }
 });
 
-document.getElementById("refresh").addEventListener("click", () => {
-  load();
-  loadCloud();
+document.getElementById("run-scout").addEventListener("click", () => startAction("scout"));
+document.getElementById("refresh").addEventListener("click", () => STATIC_MODE ? Promise.all([load(), loadCloud()]) : startAction("refresh"));
+document.getElementById("approve-selected").addEventListener("click", () => approveBatch([...selectedTickets.values()]));
+document.getElementById("select-tickets").addEventListener("click", () => {
+  if (STATIC_MODE || !state) return;
+  selectedTickets.clear();
+  for (const d of state.decisions.filter(d => eligible(d, state)).slice(0, 20)) selectedTickets.set(`${d.cycle}|${d.ticket_id}`, {ticket_id: d.ticket_id, cycle_file: d.cycle, proposal_hash: d.proposal_hash});
+  renderControls(state);
+  renderDecisions(state);
 });
 load();
 loadCloud();
 if (!STATIC_MODE) {
-  setInterval(() => {
-    load();
-    loadCloud();
-  }, 30000);
+  setInterval(load, 5000);
+  setInterval(loadCloud, 30000);
 }

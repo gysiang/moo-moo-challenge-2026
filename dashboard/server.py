@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import threading
+
+from dashboard.manual import ManualActions
+from dashboard.batch import BatchApprovals
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -43,8 +47,15 @@ class App:
         self.history_file = "equity-history-demo.jsonl" if demo else "equity-history.jsonl"
         self.rejections_file = "rejections-demo.jsonl" if demo else "rejections.jsonl"
         self.triggers_file = "guard-triggers-demo.jsonl" if demo else "guard-triggers.jsonl"
+        self.lock = threading.RLock()
+        self.manual = ManualActions(cloud, self.runtime, self.config_path, self.lock) if cloud and not demo else None
+        self.batch = BatchApprovals(self)
 
     def state(self) -> dict:
+        with self.lock:
+            return self._state()
+
+    def _state(self) -> dict:
         payload = state.build_state(
             runtime=self.runtime,
             config_path=self.config_path,
@@ -60,9 +71,35 @@ class App:
             "configured": self.guard is not None,
             "session_id": self.guard.session_id if self.guard else None,
         }
+        payload["manual_action"] = self.manual.status() if self.manual else {"configured": False, "status": "disabled"}
+        payload["batch"] = self.batch.status()
         return payload
 
+    def poll(self) -> None:
+        if self.manual:
+            self.manual.poll()
+            self.batch.poll()
+
+    def start_manual(self, mode: str) -> tuple[int, dict]:
+        if self.manual is None:
+            return HTTPStatus.CONFLICT, {"ok": False, "error": "Cloud actions are disabled in demo/offline mode."}
+        result = self.manual.start(mode)
+        return (HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT), result
+
+    def approve_batch(self, payload: dict) -> tuple[int, dict]:
+        result = self.batch.approve(payload)
+        return (HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT), result
+
     def approve(self, payload: dict[str, Any]) -> tuple[int, dict]:
+        with self.lock:
+            if self.manual:
+                return self.approve_batch({"tickets": [payload]})
+            return self._approve(payload)
+
+    def _approve(self, payload: dict[str, Any]) -> tuple[int, dict]:
+        safety = self.state()["guard"]
+        if not self.demo and (safety["halted"] or safety["kill_switch"]):
+            return HTTPStatus.CONFLICT, {"ok": False, "error": "Guard is halted; no approval or trigger was created."}
         ticket_id = payload.get("ticket_id")
         cycle_file = payload.get("cycle_file")
         if not isinstance(ticket_id, str) or not isinstance(cycle_file, str):
@@ -117,6 +154,9 @@ class App:
         return (HTTPStatus.OK if result.get("ok") else HTTPStatus.CONFLICT), result
 
     def trigger_guard(self, cycle_file: str, ticket_id: str) -> dict:
+        safety = self.state()["guard"]
+        if safety["halted"] or safety["kill_switch"]:
+            return {"configured": self.guard is not None, "triggered": False, "error": "Guard is halted; operator reconciliation is required."}
         if self.demo:
             return {
                 "configured": False,
@@ -307,7 +347,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/sync":
             self._json(HTTPStatus.OK, self.app.sync_now())
             return
-        if route not in ("/api/approve", "/api/reject"):
+        if route not in ("/api/approve", "/api/reject", "/api/approve-batch", "/api/scout", "/api/refresh"):
             self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
         if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
@@ -328,8 +368,13 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             self._json(HTTPStatus.BAD_REQUEST, {"error": "json object required"})
             return
-        if route == "/api/reject":
-            status, result = self.app.reject(payload)
+        if route in ("/api/scout", "/api/refresh"):
+            status, result = self.app.start_manual(route.removeprefix("/api/"))
+        elif route == "/api/approve-batch":
+            status, result = self.app.approve_batch(payload)
+        elif route == "/api/reject":
+            with self.app.lock:
+                status, result = self.app.reject(payload)
         else:
             status, result = self.app.approve(payload)
         self._json(status, result)

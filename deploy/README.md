@@ -1,9 +1,27 @@
 # QCA deployment runbook — Moomoo Scout + Guard
 
-**Status as of 2026-11-19.** Read §0 first: the code is ready, the cloud *wiring* is not
-fully verified, and this document separates the two. Path B (operator decision 2026-11-19)
-is in force: EMA8 > EMA21 entry trigger, 12-hour entry approvals, and a bounded operator
-exit mandate that lets Guard run scheduled **exit-only** runs — see §4.2.
+**Current policy, 2026-11-20: manual-only.** All four Forward Scout schedules are archived.
+Start `python -m dashboard` locally, then use **Run Scout** for research or **Refresh** for
+broker holdings and order history. Neither startup nor status polling starts research.
+Results are request/session-scoped and automatically imported while the dashboard is open;
+after reopening, it resumes result retrieval, not task submission. The published site stays
+read-only and is not updated by this local workflow.
+
+**Approve selected** validates all selected hashes, freshness, combined limits, pending
+commitments and the existing halt before storing any approvals. Guard runs one serial
+batch, rechecking R1-R11 and reconciling each order before proceeding. An uncertain result
+blocks further batches; never delete the action/batch journals to retry. No live trading,
+Windows startup task, overnight PC, automatic approval or halt clearance is enabled.
+
+The cloud Scout manual protocol is installed. The cloud Guard batch-template update was
+blocked by the permission checker; the local client refuses batch dispatch unless that
+protocol is confirmed. Trading remains halted. Guard rollout and explicit, reconciled
+halt clearance are separate prerequisites. A verified same-ET-day opening equity is also
+required; Refresh never invents it. The local changes are not committed or pushed, and
+an already-running dashboard must be restarted to load them. Live Forward request and
+artifact delivery remain unverified; browser verification uses isolated synthetic data.
+Do not assume the cloud repository has the updated Guard bridge. The dry-run coordinator
+remains an unused rehearsal. The older notes below do not authorize scheduled runs.
 
 ---
 
@@ -26,6 +44,79 @@ Consequence: **entry approval stays outside the cloud scheduler.** Scout may run
 Guard runs on an operator trigger for entries, and on an exit-only cron only while a valid
 operator exit mandate is on disk (§4.2). Anything else would quietly break G3/R11, which is
 the one guarantee the submission is judged on.
+
+### Cloud-only entry pilot rehearsal (2026-11-20)
+
+`coordinator/` is a standalone, stdlib-only worker for a cloud host with a durable local
+volume. It does not depend on the desktop dashboard or its runtime directory. This build
+is **DRY_RUN only**: no broker adapter, Guard messages, approvals, live entry mandates,
+submission API, enable switch, or resume operation. The existing Guard halt is untouched.
+The 24-hour window is a rehearsal clock, not activation of permission to trade.
+
+The immutable rehearsal policy permits both watchlist sleeves at unchanged strategy sizes,
+at most two BUYs per ET trading day and 10% of pinned starting equity in cumulative BUY
+notional. Reservations remain pending and retain their full quota across restarts and ET
+day changes; this build never pretends they filled or frees their quota. Oversized tickets
+are rejected, not resized. Fees also reserve cash. R1-R10 are evaluated by the existing
+code; R11 remains `R11_NO_APPROVAL`, with hypothetical pilot eligibility reported separately.
+Results are `DRY_RUN_RESERVED`, `DRY_RUN_DUPLICATE` or `DRY_RUN_REJECTED`, never `READY`.
+
+Daily starting equity must be explicitly pinned with a dated provenance reference using
+`baseline`; a later bundle cannot reset it. Missing baselines, stale evidence, malformed
+bundles and unverifiable existing broker BUY usage fail closed. The legacy account schema
+has no order notionals, so any same-day executed order or working BUY blocks reservation
+until a future broker-reconciliation integration can account for it. This conservative
+restriction is intentional; rehearsal success is not execution readiness.
+
+Flow: Scout creates one `coordinator-YYYYMMDD-HHMM.json` using `python -m coordinator.bundle`
+(the optional procedure in `scout-agent.md`), then DeliverArtifacts hands it to Cloud Files.
+The worker uses authenticated read-only session/file discovery, pinned Scout agent identity,
+and same-session bundles. It does not combine separately delivered account/metrics files.
+Snapshot age and market-entry window checks happen after download. SQLite WAL, full
+synchronous commits and `BEGIN IMMEDIATE` make artifact dedupe and shadow reservations one
+transaction. Missing storage stops the worker rather than initializing an empty ledger.
+
+Deployment files: `deploy/coordinator.Dockerfile` and `deploy/coordinator.compose.yaml`.
+The Docker-specific ignore file excludes runtime data, `.env`, Guard and broker code from
+the build context. Provision an external persistent volume on one cloud host (not a QCA
+session filesystem, ephemeral container disk, NFS, or independent per-replica volumes),
+owned by UID 10001. Set `COORDINATOR_VOLUME` to its name and `COORDINATOR_ENV_FILE` to the
+cloud host's protected `.env` path containing the read-only Cloud API PAT. Nothing provisions
+that host or injects credentials automatically. Do not mount the real Guard runtime.
+
+Before starting the service, use its CLI once to initialize a NEW rehearsal database and
+pin the verified baseline. `--starts-at` is explicit, expires exactly 24 hours later, and
+cannot be renewed by restarting or repeating initialization:
+
+```
+python -m coordinator --db /state/coordinator.sqlite3 init-dry-run \
+    --pilot-id pilot-rehearsal --starts-at '<UTC_START_ISO>' --scout-agent-id '<SCOUT_AGENT_ID>'
+python -m coordinator --db /state/coordinator.sqlite3 baseline \
+    --day '<ET_DATE>' --equity '<VERIFIED_OPENING_EQUITY>' \
+    --observed-at '<BASELINE_OBSERVATION_ISO>' --source '<PROVENANCE_REFERENCE>'
+python -m coordinator --db /state/coordinator.sqlite3 run --env-file /run/secrets/.env
+python -m coordinator --db /state/coordinator.sqlite3 status
+```
+
+For Compose, run these subcommands via `docker compose -f deploy/coordinator.compose.yaml
+run --rm coordinator ...`; the image entrypoint already supplies Python and `--db`.
+Then `docker compose -f deploy/coordinator.compose.yaml up -d` starts the read-only worker.
+There are no published ports. `revoke` permanently stops that rehearsal; it never contacts
+a broker. Poll failures stop rather than silently retry, and restart policy is disabled.
+Do not schedule deployment or initialize a real pilot until the host, persistent volume,
+Cloud API pagination contract and bundle delivery have been verified in that environment.
+
+Tests: `python -m unittest tests.test_coordinator -v`. No cloud host, persistent volume,
+QCA template changes or new schedules are provisioned by these files. Entry execution is a
+separate future change requiring current broker reconciliation and explicit operator
+permission; this build cannot enable it by configuration.
+
+### Abandoned local Windows rehearsal
+
+The local worker setup was interrupted before any task or pilot database was installed.
+The unused launcher sources are retained because their deletion was blocked; they are not
+part of the manual dashboard. Do not install them or change Windows execution policy.
+The coordinator CLI's optional local log output is tested independently of those launchers.
 
 ### Deployed state, 2026-11-17 (created over MCP)
 

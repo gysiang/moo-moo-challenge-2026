@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -69,6 +71,21 @@ def metrics_for(symbol: str, instrument) -> dict:
             }
         },
     }
+
+
+class TestHaltedPrepareCLI(unittest.TestCase):
+    def test_halt_replaces_old_plan_before_reading_other_inputs(self):
+        from guard.bridge_cli import cmd_prepare
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            journal, output = root / "events.jsonl", root / "plan.json"
+            journal.write_text('{"event":"HALTED"}\n', encoding="utf-8")
+            output.write_text('{"status":"READY","arguments":{"qty":"1"}}', encoding="utf-8")
+            args = argparse.Namespace(log=str(journal), out=str(output), ticket="fixture-ticket")
+            self.assertEqual(cmd_prepare(args), 2)
+            plan = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(plan["reason"], "GUARD_HALTED")
+            self.assertNotIn("arguments", plan)
 
 
 class TestPrepareOrder(unittest.TestCase):

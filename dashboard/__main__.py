@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import argparse
 import threading
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.cloud import TOKEN_KEY, CloudClient, load_env
@@ -17,119 +15,49 @@ DEFAULT_ENV_FILE = Path(".env")
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="python -m dashboard",
-        description="Moomoo paper-trading operator dashboard (read-only + approvals).",
-    )
-    parser.add_argument("--runtime", help="directory holding account/cycle/event artefacts")
+    parser = argparse.ArgumentParser(prog="python -m dashboard", description="On-demand paper-trading operator dashboard")
+    parser.add_argument("--runtime")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
-    parser.add_argument("--demo", action="store_true", help="serve the labelled demo fixtures")
-    parser.add_argument("--baseline", type=float, default=100000.0, help="starting equity")
+    parser.add_argument("--demo", action="store_true")
+    parser.add_argument("--baseline", type=float, default=100000.0)
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument(
-        "--env-file",
-        default=str(DEFAULT_ENV_FILE),
-        help=f"file holding {TOKEN_KEY} and {SESSION_KEY}",
-    )
-    parser.add_argument("--no-cloud", action="store_true", help="disable Cloud Agents access")
-    parser.add_argument("--guard-session", help=f"Guard Forward session id (default: {SESSION_KEY})")
-    parser.add_argument("--no-guard", action="store_true", help="approve without starting the Guard")
-    parser.add_argument(
-        "--sync-interval",
-        type=float,
-        default=0.0,
-        help="seconds between artifact sync passes from cloud sessions; 0 disables",
-    )
+    parser.add_argument("--env-file", default=str(DEFAULT_ENV_FILE))
+    parser.add_argument("--no-cloud", action="store_true")
+    parser.add_argument("--guard-session")
+    parser.add_argument("--no-guard", action="store_true")
+    parser.add_argument("--sync-interval", type=float, default=0, help="obsolete; manual requests alone are polled")
     args = parser.parse_args(argv)
-
     runtime = Path(args.runtime) if args.runtime else (DEFAULT_DEMO_RUNTIME if args.demo else DEFAULT_RUNTIME)
     if not runtime.is_dir():
         parser.error(f"runtime directory not found: {runtime}")
-
-    cloud = None
-    guard = None
-    env_file = Path(args.env_file)
-    env = load_env(env_file) if env_file.exists() else {}
+    env = {} if args.no_cloud or args.demo else load_env(Path(args.env_file))
     token = env.get(TOKEN_KEY, "").strip()
-    if not args.no_cloud and token:
-        cloud = CloudClient(token)
+    cloud = CloudClient(token) if token and not args.no_cloud and not args.demo else None
     session_id = (args.guard_session or env.get(SESSION_KEY, "")).strip()
-    if not args.no_guard and cloud is not None and session_id:
-        try:
-            guard = GuardLink(cloud, session_id)
-        except ValueError as err:
-            parser.error(str(err))
-    if args.demo and guard is not None:
-        guard = None
-        print("guard link: disabled in demo mode (synthetic fixtures never place orders)")
+    guard = GuardLink(cloud, session_id) if cloud and session_id and not args.no_guard else None
+    httpd = serve(runtime=runtime, config_path=Path(args.config), baseline=args.baseline,
+                  demo=args.demo, cloud=cloud, guard=guard, port=args.port)
+    stopped = threading.Event()
 
-    sync_status: dict = {"interval": None, "last": None}
-    sync_run = None
-    if args.sync_interval > 0:
-        if args.demo:
-            parser.error("--sync-interval is disabled in demo mode")
-        if cloud is None:
-            parser.error(f"--sync-interval needs {TOKEN_KEY} in {env_file} and no --no-cloud")
-        from dashboard.sync import sync_once
+    def poll_requested_actions():
+        while not stopped.wait(5):
+            try:
+                httpd.RequestHandlerClass.app.poll()
+            except Exception:
+                print("Dashboard result polling failed; no action was restarted.")
 
-        def sync_run() -> dict:
-            result = sync_once(cloud, runtime, limit=12)
-            sync_status["interval"] = interval
-            sync_status["last"] = {
-                "at": datetime.now(timezone.utc).isoformat(),
-                "sessions": result["sessions"],
-                "files": result["files"],
-                "written": len(result["written"]),
-                "errors": result["errors"][:5],
-            }
-            return result
-
-        interval = max(10.0, float(args.sync_interval))
-
-        def sync_loop() -> None:
-            while True:
-                try:
-                    sync_run()
-                except Exception as err:  # keep the dashboard alive; the loop retries next pass
-                    sync_status["last"] = {
-                        "at": datetime.now(timezone.utc).isoformat(),
-                        "error": str(err)[:200],
-                    }
-                time.sleep(interval)
-
-        threading.Thread(target=sync_loop, daemon=True, name="artifact-sync").start()
-
-    httpd = serve(
-        runtime=runtime,
-        config_path=Path(args.config),
-        baseline=args.baseline,
-        demo=args.demo,
-        cloud=cloud,
-        guard=guard,
-        sync_status=sync_status,
-        sync_run=sync_run,
-        port=args.port,
-    )
-    print(f"dashboard http://127.0.0.1:{args.port}  runtime={runtime}  demo={args.demo}")
-    if cloud is not None:
-        print(f"cloud agents: enabled via {TOKEN_KEY} in {env_file} (server-side only)")
-    else:
-        print(f"cloud agents: disabled (no {TOKEN_KEY} in {env_file}, or --no-cloud)")
-    if guard is not None:
-        print(f"guard link: approve starts Forward session {session_id}")
-    else:
-        print(f"guard link: disabled (no {SESSION_KEY} in {env_file}, or --no-guard)")
-    print("approvals write to", runtime / "approvals.json")
-    print("rejections append to", runtime / "rejections.jsonl")
-    if sync_run is not None:
-        print(f"artifact sync: every {int(interval)}s from moomoo-scout/moomoo-guard sessions")
-    else:
-        print("artifact sync: disabled (--sync-interval 0)")
+    threading.Thread(target=poll_requested_actions, daemon=True, name="requested-action-results").start()
+    print(f"dashboard http://127.0.0.1:{args.port} runtime={runtime} demo={args.demo}")
+    print("Scout and broker refresh run only on click. No startup research or scheduled worker.")
+    print("Guard remains subject to its halt, per-ticket approvals and R1-R11.")
+    if args.sync_interval:
+        print("--sync-interval ignored: unscoped background artifact sync has been replaced by request-scoped results.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        stopped.set()
         httpd.server_close()
     return 0
 

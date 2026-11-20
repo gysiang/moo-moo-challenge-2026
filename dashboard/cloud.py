@@ -187,6 +187,42 @@ class CloudClient:
             raise CloudError(status, f"artifact download returned HTTP {status}")
         return body
 
+    def _forward(self) -> "CloudClient":
+        return CloudClient(self._token, base_url="https://api.qoder.com/api/v1/forward",
+                           timeout=self._timeout, transport=self._transport)
+
+    def create_forward_session(self, identity_id: str, template_id: str, title: str) -> dict:
+        payload = self._forward()._request("POST", "/sessions", payload={
+            "identity_id": identity_id, "template_id": template_id, "title": title,
+        })
+        item = payload.get("item", payload)
+        if not isinstance(item, dict) or not SESSION_ID.fullmatch(str(item.get("id", ""))):
+            raise CloudError(0, "Session creation returned no valid id; inspect Cloud Agents before retrying")
+        return item
+
+    def guard_batch_ready(self, template_id: str) -> bool:
+        if not re.fullmatch(r"tmpl_[A-Za-z0-9]+", template_id):
+            raise CloudError(400, "invalid template id")
+        payload = self._forward()._request("GET", f"/templates/{template_id}")
+        item = payload.get("item", payload)
+        if not isinstance(item, dict):
+            return False
+        system = item.get("system", "")
+        tools = item.get("tools", [])
+        return (item.get("status") == "active" and isinstance(system, str) and "guard-batch" in system and
+                "One approved batch runs serially" in system and isinstance(tools, list) and
+                any(isinstance(t, dict) and isinstance(t.get("enabled_tools"), list) and
+                    "DeliverArtifacts" in t["enabled_tools"] for t in tools))
+
+    def forward_session(self, session_id: str) -> dict:
+        if not SESSION_ID.fullmatch(session_id):
+            raise CloudError(400, "invalid session id")
+        payload = self._forward()._request("GET", f"/sessions/{session_id}")
+        return payload.get("item", payload)
+
+    def send_forward_message(self, session_id: str, text: str) -> dict:
+        return self._forward().send_user_message(session_id, text)
+
     def send_user_message(self, session_id: str, text: str, *, limit: int = 256_000) -> dict:
         if not SESSION_ID.match(session_id or ""):
             raise CloudError(400, "invalid session id")

@@ -12,7 +12,7 @@
     <span class="dot"></span>
     <div>
       <div class="brand-title">Moomoo × Qoder</div>
-      <div class="brand-sub">paper account <span id="account-id">5829804</span> · <span id="mode">LIVE</span></div>
+      <div class="brand-sub">paper account <span id="account-id">5829804</span> · <span id="mode">PAPER</span></div>
     </div>
   </div>
   <div class="topbar-right">
@@ -24,11 +24,13 @@
       </span>
     </div>
     <div class="stamp">as of <span id="as-of">—</span></div>
+    <button id="run-scout" class="primary operator-only">Run Scout</button>
     <button id="refresh" class="ghost">Refresh</button>
   </div>
 </header>
 
 <main>
+  <div class="banner operator-only" id="action-status" role="status" aria-live="polite">Scout runs only when requested. Refresh retrieves the paper account and orders.</div>
   <section class="kpis" id="kpis"></section>
 
   <section class="card chart-card">
@@ -58,9 +60,19 @@
   </section>
 
   <section class="card">
+    <div class="card-head"><h2>Filled orders</h2><span class="muted" id="fills-count"></span></div>
+    <div class="table-wrap"><table id="fills"></table></div>
+  </section>
+
+  <section class="card">
     <div class="card-head">
       <h2>Agent decision log</h2>
       <div class="legend" id="decision-counts"></div>
+    </div>
+    <div class="batch-toolbar operator-only">
+      <button id="select-tickets" class="ghost">Select eligible tickets</button>
+      <button id="approve-selected" class="primary" disabled>Approve selected (0)</button>
+      <span id="approval-note" class="muted"></span>
     </div>
     <div class="table-wrap"><table id="decisions"></table></div>
   </section>

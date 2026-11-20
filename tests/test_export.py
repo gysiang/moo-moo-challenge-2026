@@ -139,8 +139,8 @@ class ExportTests(unittest.TestCase):
         handler = partial(SimpleHTTPRequestHandler, directory=str(out))
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
-        self.addCleanup(httpd.shutdown)
         self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
         port = httpd.server_address[1]
 
         with urlopen(f"http://127.0.0.1:{port}/index.html", timeout=5) as response:

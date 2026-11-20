@@ -1,0 +1,15 @@
+**
+!coordinator/
+!coordinator/*.py
+!gate/
+!gate/*.py
+!scout/
+!scout/*.py
+!scout/watchlist.json
+!dashboard/
+!dashboard/__init__.py
+!dashboard/cloud.py
+!config.json
+!deploy/
+!deploy/coordinator.Dockerfile
+!deploy/coordinator.Dockerfile.dockerignore
