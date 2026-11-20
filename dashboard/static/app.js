@@ -80,6 +80,7 @@ function renderControls(s) {
   const action = s.manual_action || {};
   const active = ["creating", "sending", "running", "unknown"].includes(action.status);
   const configured = action.configured && !STATIC_MODE && !s.demo;
+  if (!HOSTED_SCOUT) {
   document.getElementById("run-scout").disabled = busy || active || !configured;
   document.getElementById("refresh").disabled = busy || (!STATIC_MODE && (active || !configured));
   const label = action.mode === "scout" ? "Scout" : "Account refresh";
@@ -87,6 +88,7 @@ function renderControls(s) {
     (action.status === "completed" ? `${label} complete · account as of ${clock(s.account_as_of)}` :
       active ? `${label} ${action.status} · results appear automatically · ${action.session_id || "creating session"}` :
       configured ? "On demand only · Run Scout for tickets · Refresh for positions and orders" : "Cloud actions disabled (demo/offline)");
+  }
   for (const [key, choice] of selectedTickets) {
     if (!(s.decisions || []).some(d => `${d.cycle}|${d.ticket_id}` === key && d.proposal_hash === choice.proposal_hash && eligible(d, s))) selectedTickets.delete(key);
   }
@@ -103,6 +105,7 @@ let cloudState = null;
 let cloudOpen = null;
 const cloudEvents = new Map();
 const STATIC_MODE = document.documentElement.dataset.static === "1";
+const HOSTED_SCOUT = STATIC_MODE && document.documentElement.dataset.hostedScout === "1";
 const STATE_URL = STATIC_MODE ? "state.json" : "/api/state";
 const CLOUD_URL = STATIC_MODE ? "cloud.json" : "/api/cloud/sessions?limit=12";
 
@@ -372,7 +375,9 @@ function renderSession(s) {
 
 function render(s) {
   document.getElementById("account-id").textContent = s.account_id || "—";
-  document.getElementById("mode").innerHTML = STATIC_MODE
+  document.getElementById("mode").innerHTML = HOSTED_SCOUT
+    ? `PAPER · <span class="demo-badge">${s.demo ? 'SYNTHETIC PREVIEW · ' : ''}MANUAL SCOUT · TRADING DISABLED</span>`
+    : STATIC_MODE
     ? `PAPER · <span class="demo-badge">READ-ONLY SNAPSHOT</span>`
     : s.verification_fixture || s.demo
     ? `DEMO <span class="demo-badge">SYNTHETIC DATA · NO BROKER</span>`
@@ -621,8 +626,8 @@ document.addEventListener("click", (event) => {
   }
 });
 
-document.getElementById("run-scout").addEventListener("click", () => startAction("scout"));
-document.getElementById("refresh").addEventListener("click", () => STATIC_MODE ? Promise.all([load(), loadCloud()]) : startAction("refresh"));
+document.getElementById("run-scout").addEventListener("click", () => HOSTED_SCOUT ? window.hostedScout?.start() : startAction("scout"));
+document.getElementById("refresh").addEventListener("click", () => HOSTED_SCOUT ? window.hostedScout?.refresh() : STATIC_MODE ? Promise.all([load(), loadCloud()]) : startAction("refresh"));
 document.getElementById("approve-selected").addEventListener("click", () => approveBatch([...selectedTickets.values()]));
 document.getElementById("select-tickets").addEventListener("click", () => {
   if (STATIC_MODE || !state) return;

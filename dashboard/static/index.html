@@ -24,13 +24,18 @@
       </span>
     </div>
     <div class="stamp">as of <span id="as-of">—</span></div>
-    <button id="run-scout" class="primary operator-only">Run Scout</button>
+    <button id="run-scout" class="primary scout-control" disabled>Run Scout</button>
     <button id="refresh" class="ghost">Refresh</button>
   </div>
 </header>
 
 <main>
-  <div class="banner operator-only" id="action-status" role="status" aria-live="polite">Scout runs only when requested. Refresh retrieves the paper account and orders.</div>
+  <div class="banner scout-control" id="action-status" role="status" aria-live="polite">Scout runs only when requested. Refresh retrieves the paper account and orders.</div>
+  <section class="card" id="scout-report" hidden aria-labelledby="scout-report-heading">
+    <div class="card-head"><h2 id="scout-report-heading">Latest Scout report</h2><span class="muted" id="scout-report-time">No run yet</span></div>
+    <div id="scout-report-body" class="scout-report-body"></div>
+  </section>
+  <div class="saved-snapshot-label">Saved dashboard snapshot below · Scout results above have their own collection timestamp.</div>
   <section class="kpis" id="kpis"></section>
 
   <section class="card chart-card">

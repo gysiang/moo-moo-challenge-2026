@@ -81,6 +81,23 @@ class ExportTests(unittest.TestCase):
         self.assertIn("if (STATIC_MODE) {", js)
         self.assertNotIn("setInterval(", js.split("if (!STATIC_MODE) {", 1)[0])
 
+    def test_hosted_scout_bundle_keeps_trading_static_and_includes_controller(self):
+        out = self.root / "hosted"
+        export_site(runtime=self.runtime, config_path=ROOT / "config.json", baseline=100000,
+                    out_dir=out, demo=True, hosted_scout=True)
+        html = (out / "index.html").read_text(encoding="utf-8")
+        self.assertIn('data-static="1" data-hosted-scout="1"', html)
+        self.assertIn('src="hosted-scout.js"', html)
+        self.assertIn("trading", html.lower())
+        self.assertTrue((out / "hosted-scout.js").is_file())
+        self.assertIn("Research is not an approved ticket", html)
+        self.assertIn('id="scout-report"', html)
+
+    def test_plain_static_export_does_not_connect_hosted_scout(self):
+        out, _ = self.export()
+        self.assertNotIn('data-hosted-scout="1"', (out / "index.html").read_text(encoding="utf-8"))
+        self.assertFalse((out / "hosted-scout.js").exists())
+
     def test_state_snapshot_is_demo_and_complete(self):
         out, _ = self.export()
         state = json.loads((out / "state.json").read_text(encoding="utf-8"))

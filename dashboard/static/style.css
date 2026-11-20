@@ -28,6 +28,22 @@
 
 * { box-sizing: border-box; }
 [data-static="1"] .operator-only { display: none !important; }
+[data-static="1"]:not([data-hosted-scout="1"]) .scout-control { display: none !important; }
+.saved-snapshot-label { display: none; color: var(--muted); font-size: 12px; }
+[data-hosted-scout="1"] .saved-snapshot-label { display: block; }
+.scout-report-body { padding: 0 calc(18px * var(--site-space)) calc(18px * var(--site-space)); }
+.scout-summary { display: flex; flex-wrap: wrap; gap: calc(20px * var(--site-space)); margin: 16px 0; }
+.scout-news { max-width: 440px; white-space: normal; }
+.scout-news p { margin: 0 0 10px; }
+.scout-report-body details { margin-top: 18px; }
+.scout-report-body summary { cursor: pointer; color: var(--text); }
+.scout-report-body .empty { padding: 20px 0; }
+.scout-decisions { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 20px; }
+#scout-decisions td { vertical-align: top; }
+#scout-decisions .scout-ticket-reasons { white-space: normal; overflow-wrap: anywhere; padding-bottom: 24px; }
+.scout-rejection-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 18px; }
+#scout-decisions p { margin: 0 0 10px; }
+.scout-decisions .banner { margin: 12px 0; }
 .batch-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 0 18px 16px; }
 input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
 button:disabled { opacity: .45; cursor: not-allowed; }

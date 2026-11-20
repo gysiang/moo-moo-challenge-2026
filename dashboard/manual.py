@@ -129,6 +129,30 @@ def account_state(account: dict, now: datetime) -> AccountState:
                         daily_pnl_pct=account["equity"] / baseline - 1 if baseline else 0.0)
 
 
+def evaluate_scout(snapshot, account: dict, news_payload: dict, config: Path, now: datetime) -> dict:
+    news = {s: tuple(Evidence(e["id"], "news", moment(e["as_of"]), e["source"]) for e in items)
+            for s, items in news_payload.items()}
+    market = market_session(now)
+    entry = market["state"] == "OPEN" and moment(market["closes_at"]) - now > timedelta(minutes=30)
+    scout = Scout(load_limits(config), load_strategy(config), load_watchlist(config.parent / "scout/watchlist.json"))
+    report = scout.run(f"{eastern(now):%H:%M}", now, snapshot, account_state(account, now),
+                       news=news, allow_entries=entry)
+    cycle = report.to_dict()
+    for row, record in zip(cycle["records"], report.records):
+        row["gate"]["rejections"] = [{"code": item.code, "message": item.message} for item in record.gate.rejections]
+    if market["state"] != "OPEN":
+        cycle["records"] = []
+        cycle["skipped"] = [{"symbol": "*", "reason": "MARKET_CLOSED"}]
+    if not account["baseline_verified"]:
+        for row in cycle["records"]:
+            row["status"] = "REJECTED"
+            row["gate"]["passed"] = False
+            row["gate"]["codes"].append("R8_DAILY_BASELINE_UNVERIFIED")
+            row["gate"]["rejections"].append({"code": "R8_DAILY_BASELINE_UNVERIFIED",
+                                               "message": "Verified day-opening equity is unavailable; daily loss limit cannot be verified."})
+    return cycle
+
+
 class ManualActions:
     def __init__(self, client: CloudClient, runtime: Path, config: Path, lock=None):
         self.client, self.runtime, self.config = client, Path(runtime), Path(config)
@@ -243,21 +267,7 @@ class ManualActions:
                 metrics = json.loads(staging.read_text(encoding="utf-8"))
             finally:
                 staging.unlink(missing_ok=True)
-            news = {s: tuple(Evidence(e["id"], "news", moment(e["as_of"]), e["source"]) for e in items)
-                    for s, items in payload["news"].items()}
-            market = market_session(now)
-            entry = market["state"] == "OPEN" and moment(market["closes_at"]) - now > timedelta(minutes=30)
-            scout = Scout(load_limits(self.config), settings, watchlist)
-            cycle = scout.run(f"{eastern(now):%H:%M}", now, snapshot, account_state(account, now),
-                              news=news, allow_entries=entry).to_dict()
-            if market["state"] != "OPEN":
-                cycle["records"] = []
-                cycle["skipped"].append({"symbol": "*", "reason": "MARKET_CLOSED"})
-            if not account["baseline_verified"]:
-                for row in cycle["records"]:
-                    row["status"] = "REJECTED"
-                    row["gate"]["passed"] = False
-                    row["gate"]["codes"].append("R8_DAILY_BASELINE_UNVERIFIED")
+            cycle = evaluate_scout(snapshot, account, payload["news"], self.config, now)
             old_ids = {r["ticket_id"] for c in state.list_cycles(self.runtime) for r in c["payload"]["records"]}
             if old_ids.intersection(r["ticket_id"] for r in cycle["records"]):
                 raise ValueError("ticket minute collision; keep original tickets")

@@ -26,14 +26,25 @@ def _read(name: str) -> str:
     return (STATIC / name).read_text(encoding="utf-8")
 
 
-def _index_html() -> str:
+def _index_html(hosted_scout: bool = False) -> str:
     html = _read("index.html")
     html = html.replace('<html lang="en">', '<html lang="en" data-static="1">', 1)
     html = html.replace("/static/style.css", "style.css")
     html = html.replace("/static/app.js", "app.js")
     start = html.index("  <footer>")
     end = html.index("</footer>") + len("</footer>")
-    return html[:start] + FOOTER.strip() + html[end:]
+    footer = FOOTER
+    if hosted_scout:
+        html = html.replace('data-static="1"', 'data-static="1" data-hosted-scout="1"', 1)
+        start = html.index("  <footer>")
+        end = html.index("</footer>") + len("</footer>")
+        footer = """  <footer>
+    Run Scout retrieves read-only research and paper-account facts on demand. Results appear above the saved dashboard snapshot.
+    Research is not an approved ticket. Trading, approvals and Guard execution remain disabled here.
+    Refresh checks the current run; it never starts another Scout.
+  </footer>"""
+        html = html.replace('</body>', '<script src="hosted-scout.js"></script>\n</body>')
+    return html[:start] + footer.strip() + html[end:]
 
 
 def build_state(runtime: Path, config_path: Path, baseline: float, demo: bool) -> dict:
@@ -77,6 +88,7 @@ def export_site(
     demo: bool = False,
     cloud_client: Optional[cloud_api.CloudClient] = None,
     now: Optional[datetime] = None,
+    hosted_scout: bool = False,
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     payload = build_state(Path(runtime), Path(config_path), baseline, demo)
@@ -87,7 +99,9 @@ def export_site(
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "index.html").write_text(_index_html(), encoding="utf-8")
+    (out / "index.html").write_text(_index_html(hosted_scout), encoding="utf-8")
+    if hosted_scout:
+        (out / "hosted-scout.js").write_text(_read("hosted-scout.js"), encoding="utf-8")
     (out / "app.js").write_text(_read("app.js"), encoding="utf-8")
     (out / "style.css").write_text(_read("style.css"), encoding="utf-8")
     state_text = json.dumps(payload, indent=1, sort_keys=True)
@@ -116,6 +130,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--env-file", default=".env")
     parser.add_argument("--no-cloud", action="store_true", help="omit the cloud session snapshot")
+    parser.add_argument("--hosted-scout", action="store_true", help="include the Scout UI for the local SQLite server or a configured Sites Function")
     args = parser.parse_args(argv)
 
     runtime = Path(args.runtime)
@@ -136,6 +151,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         out_dir=Path(args.out),
         demo=args.demo,
         cloud_client=client,
+        hosted_scout=args.hosted_scout,
     )
     print(
         f"exported {summary['bytes']} bytes to {summary['out']} · as of {summary['as_of']} · "

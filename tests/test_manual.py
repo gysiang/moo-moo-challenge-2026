@@ -13,6 +13,7 @@ from dashboard import state
 from dashboard.cloud import CloudClient, CloudError
 from dashboard.manual import ManualActions, normalize_account, atomic_json
 from dashboard.server import App, serve
+from dashboard.scout_tickets import generate_tickets
 from guard.events import flow_state
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -367,6 +368,82 @@ class ManualTests(unittest.TestCase):
         self.assertTrue(all("/api/v1/forward/" in r.full_url for r in calls))
         self.assertNotIn("agent", json.loads(calls[0].data))
         self.assertEqual(json.loads(calls[1].data)["events"][0]["type"], "user.message")
+
+
+class TicketReviewTests(unittest.TestCase):
+    def setUp(self):
+        self.run = {"request_id": "a" * 32, "started_at": NOW.isoformat()}
+        self.payload = result_fixture(self.run["request_id"], mode="scout")
+
+    def review(self, now=NOW):
+        return generate_tickets(self.payload, self.run, now.isoformat())
+
+    def test_review_reuses_gate_and_returns_explanations_without_writes(self):
+        with patch("dashboard.manual.atomic_json", side_effect=AssertionError("No runtime writes")), \
+             patch("scout.marketdata.write_snapshot", side_effect=AssertionError("No metrics writes")), \
+             patch.object(CloudClient, "create_forward_session", side_effect=AssertionError("No cloud calls")):
+            cycle = self.review()
+        self.assertTrue(cycle["review_only"])
+        self.assertFalse(cycle["trading_enabled"])
+        self.assertEqual(cycle["request_id"], self.run["request_id"])
+        self.assertEqual(len(cycle["records"]), 2)
+        for record in cycle["records"]:
+            self.assertEqual(record["status"], "REJECTED")
+            self.assertEqual(record["gate"]["codes"], ["R11_NO_APPROVAL", "R8_DAILY_BASELINE_UNVERIFIED"])
+            self.assertEqual(record["gate"]["checked"], [f"R{i}" for i in range(1, 12)])
+            self.assertTrue(all(r["message"] for r in record["gate"]["rejections"]))
+            self.assertEqual(len(record["proposal_hash"]), 64)
+        self.assertIn({"symbol": "US.IWM", "reason": "NO_METRICS"}, cycle["skipped"])
+
+    def test_remote_baselines_and_approvals_are_not_trusted(self):
+        self.payload.update(day_open_equity=100000, baseline_verified=True, approvals={"all": "approved"})
+        cycle = self.review()
+        self.assertFalse(cycle["baseline_verified"])
+        self.assertTrue(all("R11_NO_APPROVAL" in r["gate"]["codes"] for r in cycle["records"]))
+
+    def test_stale_news_keeps_original_timestamp_and_explains_rejection(self):
+        stamp = (NOW - timedelta(days=5)).isoformat()
+        self.payload["news"]["US.SPY"][0]["as_of"] = stamp
+        record = next(r for r in self.review()["records"] if r["symbol"] == "US.SPY")
+        self.assertIn("R10_EVIDENCE_STALE", record["gate"]["codes"])
+        self.assertEqual(record["evidence"][1]["as_of"], stamp)
+        self.assertIn("old", next(r["message"] for r in record["gate"]["rejections"] if r["code"] == "R10_EVIDENCE_STALE"))
+
+    def test_low_cash_and_duplicate_working_order_show_both_reasons(self):
+        self.payload["cash"]["data"]["balance"] = "1"
+        self.payload["order_pages"][0]["data"]["orders"][0].update(symbol="SPY", status=1, cum_qty="0")
+        record = next(r for r in self.review()["records"] if r["symbol"] == "US.SPY")
+        self.assertIn("R4_FUNDS", record["gate"]["codes"])
+        self.assertTrue(any(c.startswith("R9_") for c in record["gate"]["codes"]))
+
+    def test_closed_market_has_explicit_skip_and_no_candidates(self):
+        with patch("dashboard.manual.market_session", return_value={"state": "CLOSED"}):
+            cycle = self.review()
+        self.assertEqual(cycle["records"], [])
+        self.assertEqual(cycle["skipped"], [{"symbol": "*", "reason": "MARKET_CLOSED"}])
+
+    def test_last_half_hour_blocks_entries_without_hiding_reason(self):
+        with patch("dashboard.manual.market_session", return_value={"state": "OPEN", "closes_at": (NOW + timedelta(minutes=20)).isoformat()}):
+            cycle = self.review()
+        self.assertEqual(cycle["records"], [])
+        self.assertIn({"symbol": "*", "reason": "ENTRIES_BLOCKED_LAST_30_MIN"}, cycle["skipped"])
+
+    def test_downtrend_produces_skip_reasons(self):
+        for row in self.payload["market_raw"]["symbols"].values():
+            row["closes"].reverse()
+        cycle = self.review()
+        self.assertEqual(cycle["records"], [])
+        self.assertIn({"symbol": "US.SPY", "reason": "CORE_TREND_DOWN"}, cycle["skipped"])
+
+    def test_stale_or_mismatched_payload_cannot_generate_tickets(self):
+        with self.assertRaises(ValueError):
+            self.review(NOW + timedelta(hours=1))
+        self.payload["account_id"] = "wrong"
+        with self.assertRaises(ValueError):
+            self.review()
+
+    def test_identical_evidence_and_assessment_time_are_deterministic(self):
+        self.assertEqual(self.review(), self.review())
 
 
 def serve_fixture():
