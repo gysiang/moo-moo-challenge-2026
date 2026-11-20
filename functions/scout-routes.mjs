@@ -2,24 +2,25 @@ import { ScoutError, scoutReport } from './scout-report.mjs';
 import { boundedJson } from './scout-cloud.mjs';
 
 const ACTIVE = new Set(['creating', 'sending', 'running', 'unknown']);
-const CODES = new Set(['login_required', 'invalid_user_context', 'invalid_input', 'not_found', 'method_not_allowed', 'scout_storage_unavailable', 'scout_not_configured', 'run_active', 'version_conflict', 'cooldown', 'dispatch_unknown', 'dispatch_rejected', 'cloud_unavailable', 'invalid_cloud_response', 'response_too_large', 'invalid_scout_result', 'scout_failed', 'scout_timeout', 'ticket_generation_unavailable']);
+const CODES = new Set(['login_required', 'invalid_user_context', 'invalid_input', 'not_found', 'method_not_allowed', 'scout_storage_unavailable', 'scout_not_configured', 'run_active', 'version_conflict', 'cooldown', 'dispatch_unknown', 'dispatch_rejected', 'cloud_unavailable', 'invalid_cloud_response', 'response_too_large', 'invalid_scout_result', 'scout_failed', 'scout_timeout', 'ticket_generation_unavailable', 'report_not_current', 'ticket_not_eligible', 'historical_assessment', 'ticket_review_expired', 'approval_expired', 'ticket_changed']);
 const requestId = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
 const response = (payload, status = 200) => Response.json(payload, {status, headers: {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'}});
 
-export function scoutApplication({store, cloud, requireUser, now = Date.now, evaluateTickets}) {
+export function scoutApplication({store, cloud, requireUser, now = Date.now, evaluateTickets, approvals}) {
   const fail = (code, status) => { throw new ScoutError(code, status); };
   const check = row => {
     if (row && (!Number.isSafeInteger(row.version) || row.version < 1 || row.version >= 2147483646 || !requestId(row.request_id) || ![...ACTIVE, 'completed', 'failed'].includes(row.status) || !Number.isFinite(Date.parse(row.started_at)))) fail('scout_storage_unavailable', 503);
     return row;
   };
   const read = async owner => check(await store.read(owner));
-  const view = row => {
+  const view = async row => {
     const expired = row && ACTIVE.has(row.status) && now() - Date.parse(row.started_at) > 1800000;
     return {ok: true, configured: cloud.configured(), version: row?.version ?? 0, request_id: row?.request_id ?? null,
       status: expired ? 'unknown' : row?.status ?? 'idle', started_at: row?.started_at ?? null, completed_at: row?.completed_at ?? null,
       next_run_at: row ? new Date(Date.parse(row.started_at) + 300000).toISOString() : null,
       error_code: expired ? 'scout_timeout' : CODES.has(row?.error_code) ? row.error_code : null,
-      report: row?.last_report ?? null, trading_enabled: false};
+      report: row?.last_report ?? null, trading_enabled: false,
+      approvals: approvals ? await approvals.view(row) : {enabled: false, tickets: []}};
   };
   const change = async (owner, run, values) => {
     const changed = await store.change(owner, run.version, values);
@@ -31,22 +32,22 @@ export function scoutApplication({store, cloud, requireUser, now = Date.now, eva
       const request = ctx.request, url = new URL(request.url);
       if (!/^\/(?:functions\/v1\/)?(?:app|app-d[0-9a-f]{32})\/?$/.test(url.pathname)) fail('not_found', 404);
       const action = url.searchParams.get('action');
-      if (!['scout-status', 'scout-start', 'scout-sync'].includes(action)) fail('not_found', 404);
+      if (!['scout-status', 'scout-start', 'scout-sync'].includes(action) && !(action === 'scout-approve' && approvals)) fail('not_found', 404);
       if (request.method !== (action === 'scout-status' ? 'GET' : 'POST')) fail('method_not_allowed', 405);
       const user = requireUser(ctx);
       const owner = user.id;
       if (typeof owner !== 'string' || !owner) fail('login_required', 401);
-      if (action === 'scout-status') return response(view(await read(owner)));
+      if (action === 'scout-status') return response(await view(await read(owner)));
       if (!request.headers.get('content-type')?.startsWith('application/json')) fail('invalid_input', 400);
       let body;
-      try { body = await boundedJson(request, 1024); } catch { fail('invalid_input', 400); }
+      try { body = await boundedJson(request, action === 'scout-approve' ? 8192 : 1024); } catch { fail('invalid_input', 400); }
       if (!body || Array.isArray(body) || !requestId(body.request_id)) fail('invalid_input', 400);
-      const keys = action === 'scout-start' ? ['request_id', 'version'] : ['request_id'];
+      const keys = action === 'scout-approve' ? ['request_id', 'version', 'tickets'] : action === 'scout-start' ? ['request_id', 'version'] : ['request_id'];
       if (Object.keys(body).some(key => !keys.includes(key))) fail('invalid_input', 400);
       let run = await read(owner);
       if (action === 'scout-start') {
         if (!Number.isSafeInteger(body.version) || body.version < 0) fail('invalid_input', 400);
-        if (run?.request_id === body.request_id) return response(view(run));
+        if (run?.request_id === body.request_id) return response(await view(run));
         if (run && ACTIVE.has(run.status)) fail('run_active', 409);
         if ((run?.version ?? 0) !== body.version) fail('version_conflict', 409);
         if (run && now() - Date.parse(run.started_at) < 300000) fail('cooldown', 429);
@@ -69,11 +70,12 @@ export function scoutApplication({store, cloud, requireUser, now = Date.now, eva
             run = await store.change(owner, run.version, {status: definitive ? 'failed' : 'unknown', error_code: definitive ? 'dispatch_rejected' : 'dispatch_unknown'}) || await read(owner);
           } catch { fail('scout_storage_unavailable', 503); }
         }
-        return response(view(run), 202);
+        return response(await view(run), 202);
       }
       if (!run || run.request_id !== body.request_id) fail('not_found', 404);
+      if (action === 'scout-approve') return response(await view(await approvals.approve(run, body)));
       const backfill = Boolean(evaluateTickets && run.status === 'completed' && run.last_report?.request_id === run.request_id && run.last_report.ticket_checks === 'not_run');
-      if ((!ACTIVE.has(run.status) && !backfill) || !run.session_id) return response(view(run));
+      if ((!ACTIVE.has(run.status) && !backfill) || !run.session_id) return response(await view(run));
       try {
         const collected = await cloud.collect(run);
         let values;
@@ -98,7 +100,7 @@ export function scoutApplication({store, cloud, requireUser, now = Date.now, eva
           run = await store.change(owner, run.version, {status: 'failed', error_code: 'invalid_scout_result'}) || await read(owner);
         } else throw error;
       }
-      return response(view(run));
+      return response(await view(run));
     } catch (error) {
       const code = CODES.has(error?.code) ? error.code : 'scout_storage_unavailable';
       const status = code === 'login_required' ? 401 : code === 'invalid_user_context' ? 403 : error instanceof ScoutError ? error.status : 503;

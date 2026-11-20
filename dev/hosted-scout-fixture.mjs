@@ -1,4 +1,4 @@
-import { ScoutError } from '../functions/scout-report.mjs';
+import { ScoutError, scoutReport } from '../functions/scout-report.mjs';
 
 export function artifact(run, now = Date.now()) {
   const stamp = new Date(now).toISOString();
@@ -8,6 +8,25 @@ export function artifact(run, now = Date.now()) {
     order_pages: [{ret_code: 0, data: {orders: [{order_id: 'fixture-filled', symbol: 'AAPL', side: 1, qty: 10, cum_qty: 10, price: 99, avg_fill_price: 99, status: 4, create_time: now * 1000}]}, pagination: {has_more: false}}],
     market_raw: {as_of: stamp, symbols: {'US.SPY': {instrument_type: 'etf', market_cap: 0, closes: Array.from({length: 60}, (_, i) => 41 + i), highs: Array.from({length: 60}, (_, i) => 42 + i), as_of: stamp}}},
     news: {'US.SPY': [{id: 'fixture-news', as_of: stamp, source: 'synthetic fixture', title: 'SYNTHETIC PREVIEW: broad-market research example'}]}};
+}
+
+export function approvalFixtureReport(run, now) {
+  const report = scoutReport(artifact(run, now), run, now);
+  const stamp = new Date(now).toISOString();
+  report.ticket_checks = 'completed';
+  report.cycle = {request_id: run.request_id, generated_at: stamp, evaluated_at: stamp, historical: false,
+    review_only: true, trading_enabled: false, baseline_verified: true, skipped: [],
+    records: ['SPY', 'QQQ', 'AAPL'].map((symbol, index) => ({
+      ticket_id: `P-SYNTHETIC-${symbol}-01`, symbol, side: 'BUY', quantity: 1, limit_price: 100, est_cost: 100,
+      proposal_hash: String(index + 1).repeat(64), rationale: 'Synthetic approval-control fixture; not broker data.',
+      evidence: [{id: 'fixture', kind: 'news', as_of: stamp, source: 'Synthetic fixture'}],
+      status: index === 2 ? 'REJECTED' : 'AWAITING_APPROVAL',
+      gate: {passed: false, checked: Array.from({length: 11}, (_, i) => `R${i + 1}`),
+        codes: index === 2 ? ['R9_DUPLICATE', 'R11_NO_APPROVAL'] : ['R11_NO_APPROVAL'],
+        rejections: [...(index === 2 ? [{code: 'R9_DUPLICATE', message: 'Synthetic working order already exists.'}] : []),
+          {code: 'R11_NO_APPROVAL', message: 'no approval on record at assessment'}]},
+    }))};
+  return report;
 }
 
 export function fixture({now = Date.now} = {}) {

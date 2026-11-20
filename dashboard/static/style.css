@@ -44,6 +44,10 @@
 .scout-rejection-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 18px; }
 #scout-decisions p { margin: 0 0 10px; }
 .scout-decisions .banner { margin: 12px 0; }
+.scout-approval-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
+.scout-approval { margin-bottom: 16px; }
+.scout-approval label { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.scout-approval input { flex: none; }
 .batch-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 0 18px 16px; }
 input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
 button:disabled { opacity: .45; cursor: not-allowed; }

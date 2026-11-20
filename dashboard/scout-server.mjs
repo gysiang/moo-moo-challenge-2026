@@ -6,6 +6,7 @@ import {sqliteScoutStore} from './scout-store.mjs';
 import {scoutApplication} from '../functions/scout-routes.mjs';
 import {scoutCloud} from '../functions/scout-cloud.mjs';
 import {ticketEvaluator} from './scout-tickets.mjs';
+import {scoutApprovals} from './scout-approvals.mjs';
 
 const TYPES = {'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript', 'hosted-scout.js': 'text/javascript', 'style.css': 'text/css', 'state.json': 'application/json', 'cloud.json': 'application/json'};
 const inside = (root, path) => { const part = relative(root, path); return !part.startsWith('..') && !isAbsolute(part); };
@@ -51,7 +52,7 @@ export async function startScoutServer({databasePath, webDirectory, cloud, port 
   html = html.replace('data-hosted-scout="1"', 'data-hosted-scout="1" data-local-scout="1"');
   pages.set('index.html', Buffer.from(html));
   const store = sqliteScoutStore(dbPath);
-  const app = scoutApplication({store, cloud, now, evaluateTickets: ticketEvaluator(python), requireUser: () => ({id: 'local-owner'})});
+  const app = scoutApplication({store, cloud, now, evaluateTickets: ticketEvaluator(python), approvals: scoutApprovals({store, now}), requireUser: () => ({id: 'local-owner'})});
   const server = http.createServer(async (req, res) => {
     const origin = `http://127.0.0.1:${server.address().port}`;
     const send = (status, body, type = 'application/json') => {
@@ -72,7 +73,7 @@ export async function startScoutServer({databasePath, webDirectory, cloud, port 
         let size = 0;
         for await (const chunk of req.iterator({destroyOnReturn: false})) {
           size += chunk.length;
-          if (size > 1024) { req.resume(); fail(413, 'invalid_input'); return; }
+          if (size > (url.searchParams.get('action') === 'scout-approve' ? 8192 : 1024)) { req.resume(); fail(413, 'invalid_input'); return; }
           chunks.push(chunk);
         }
         if (req.method === 'GET' && size) { fail(400, 'invalid_input'); return; }
@@ -102,7 +103,7 @@ if (import.meta.main) {
   try {
     const {values} = parseArgs({options: {db: {type: 'string', default: 'runtime/scout-local.sqlite3'}, web: {type: 'string', default: 'runtime/scout-web'}, port: {type: 'string', default: '8766'}, 'scout-env-file': {type: 'string'}, python: {type: 'string', default: 'python'}, help: {type: 'boolean'}}});
     if (values.help) {
-      console.log('node dashboard/scout-server.mjs [--db runtime/scout-local.sqlite3] [--web runtime/scout-web] [--port 8766] [--scout-env-file .env] [--python python]\nTicket review uses the existing Python Scout/gates; Python 3.10+ with project dependencies is required. No approvals, operational journals or Guard calls are written.\nExport first: python -m dashboard.export --hosted-scout --no-cloud --out runtime/scout-web\nQoder access uses QODER_PAT_TKN from the process environment first, then the explicitly selected --scout-env-file. No file is loaded by default.\nOnly QODER_PAT_TKN is used; other file values are not imported or executed. Restart after changing credentials.\nLoopback-only, single local operator. Trading and Guard execution are disabled.');
+      console.log('node dashboard/scout-server.mjs [--db runtime/scout-local.sqlite3] [--web runtime/scout-web] [--port 8766] [--scout-env-file .env] [--python python]\nTicket review uses the existing Python Scout/gates; Python 3.10+ with project dependencies is required. Approvals are recorded only in SQLite; operational approval files and journals are untouched. No Guard calls or orders are sent.\nExport first: python -m dashboard.export --hosted-scout --no-cloud --out runtime/scout-web\nQoder access uses QODER_PAT_TKN from the process environment first, then the explicitly selected --scout-env-file. No file is loaded by default.\nOnly QODER_PAT_TKN is used; other file values are not imported or executed. Restart after changing credentials.\nLoopback-only, single local operator. Trading and Guard execution are disabled.');
     } else {
       const port = Number(values.port);
       if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Use a port between 1024 and 65535.');

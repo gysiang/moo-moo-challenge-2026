@@ -13,7 +13,8 @@ import {execFile, spawn} from 'node:child_process';
 import {createServer} from 'node:net';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
-import {artifact, fixture} from '../dev/hosted-scout-fixture.mjs';
+import {artifact, fixture, approvalFixtureReport} from '../dev/hosted-scout-fixture.mjs';
+import {scoutApprovals} from '../dashboard/scout-approvals.mjs';
 import {ticketEvaluator} from '../dashboard/scout-tickets.mjs';
 import {scoutReport} from '../functions/scout-report.mjs';
 
@@ -205,6 +206,7 @@ test('SQLite commits Python gate decisions with the report and retains them afte
   const evaluate = ticketEvaluator();
   let broken = false, evaluations = 0;
   f.evaluateTickets = async (...args) => { evaluations++; return (broken ? ticketEvaluator(join(w.root, 'missing-python')) : evaluate)(...args); };
+  f.approvals = scoutApprovals({store, now: () => clock});
   const call = client(store, f);
   await call('scout-start', {request_id: ID, version: 0});
   const first = (await call('scout-sync', {request_id: ID})).data;
@@ -214,6 +216,9 @@ test('SQLite commits Python gate decisions with the report and retains them afte
   assert.ok(first.report.cycle.records[0].gate.rejections.every(item => item.message));
   assert.equal(first.report.cycle.request_id, ID);
   assert.equal(first.report.cycle.historical, false);
+  assert.equal(first.approvals.tickets[0].eligible, false);
+  assert.equal((await call('scout-approve', approvalBody(first.report, [0], first.version))).data.error, 'ticket_not_eligible');
+  assert.deepEqual(await store.approvals('owner', ID), []);
   await call('scout-status'); await call('scout-sync', {request_id: ID});
   assert.equal(evaluations, 1);
   clock += 300001; broken = true;
@@ -280,6 +285,173 @@ test('concurrent ticket collectors cannot overwrite a newer request or dispatch 
   assert.equal((await a.read('owner')).last_report.cycle.request_id, ID);
   assert.equal(f.counts.creates, 1);
   assert.equal(f.counts.sends, 1);
+});
+
+function approvalBody(report, indexes = [0, 1], version = 1) {
+  return {request_id: report.request_id, version, tickets: indexes.map(i => ({ticket_id: report.cycle.records[i].ticket_id, proposal_hash: report.cycle.records[i].proposal_hash}))};
+}
+async function approvalWorkspace(t, {now = () => NOW, mutate = () => {}} = {}) {
+  const w = await workspace(t), store = sqliteScoutStore(w.path), f = fixture({now});
+  w.cleanup.push(() => store.close());
+  const report = approvalFixtureReport(initial, NOW);
+  mutate(report);
+  await store.insert({...initial, status: 'completed', completed_at: new Date(NOW).toISOString(), last_report: report});
+  f.approvals = scoutApprovals({store, now});
+  return {...w, store, f, report, call: client(store, f)};
+}
+
+test('version-one SQLite migration preserves the existing run and adds isolated approval storage', async t => {
+  const w = await workspace(t), db = new DatabaseSync(w.path);
+  db.exec(`CREATE TABLE scout_state (owner_id TEXT PRIMARY KEY, version INTEGER, request_id TEXT, started_at TEXT, status TEXT, session_id TEXT, event_ids TEXT, completed_at TEXT, error_code TEXT, last_report TEXT);
+    PRAGMA application_id = 1396920148; PRAGMA user_version = 1;`);
+  db.prepare('INSERT INTO scout_state VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...Object.values({...initial, event_ids: '[]', last_report: 'null'}));
+  db.close();
+  const store = sqliteScoutStore(w.path);
+  w.cleanup.push(() => store.close());
+  assert.deepEqual(await store.read('owner'), initial);
+  assert.deepEqual(await store.approvals('owner', ID), []);
+  const check = new DatabaseSync(w.path, {readOnly: true});
+  try { assert.equal(check.prepare('PRAGMA user_version').get().user_version, 2); } finally { check.close(); }
+});
+
+test('batch approvals are durable, hash-bound, idempotent and never dispatch or change gate results', async t => {
+  let time = NOW;
+  const w = await approvalWorkspace(t, {now: () => time});
+  assert.equal((await w.call('scout-status')).data.approvals.enabled, true);
+  const body = approvalBody(w.report);
+  const result = await w.call('scout-approve', body);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.version, 2);
+  assert.equal(result.data.trading_enabled, false);
+  assert.deepEqual(result.data.report, w.report);
+  assert.equal(result.data.approvals.tickets.filter(item => item.status === 'APPROVED').length, 2);
+  const saved = await w.store.approvals('owner', ID);
+  assert.equal(Date.parse(saved[0].expires_at) - Date.parse(saved[0].approved_at), 12 * 3600000);
+  time += 60000;
+  assert.equal((await w.call('scout-approve', body)).status, 200);
+  assert.deepEqual(await w.store.approvals('owner', ID), saved);
+  const reopened = sqliteScoutStore(w.path);
+  try { assert.deepEqual(await reopened.approvals('owner', ID), saved); } finally { reopened.close(); }
+  assert.deepEqual(await w.store.approvals('other', ID), []);
+  assert.deepEqual(w.f.counts, {creates: 0, sends: 0, collects: 0});
+});
+
+test('a rejected ticket blocks the whole approval batch without partial writes', async t => {
+  const w = await approvalWorkspace(t);
+  assert.equal((await w.call('scout-approve', approvalBody(w.report, [0, 2]))).data.error, 'ticket_not_eligible');
+  assert.equal((await w.store.read('owner')).version, 1);
+  assert.deepEqual(await w.store.approvals('owner', ID), []);
+});
+
+test('approval checks reject forged status, missing gates, unverified baseline and historical assessments', async t => {
+  for (const [mutate, error] of [
+    [r => { r.cycle.records[0].status = 'READY'; }, 'ticket_not_eligible'],
+    [r => { r.cycle.records[0].gate.codes.push('R4_FUNDS'); }, 'ticket_not_eligible'],
+    [r => { r.cycle.records[0].gate.checked.pop(); }, 'ticket_not_eligible'],
+    [r => { r.cycle.baseline_verified = false; }, 'ticket_not_eligible'],
+    [r => { r.cycle.historical = true; }, 'historical_assessment'],
+    [r => { r.cycle.request_id = NEXT; }, 'report_not_current'],
+    [r => { r.cycle.generated_at = new Date(NOW + 60000).toISOString(); }, 'ticket_review_expired'],
+  ]) {
+    const w = await approvalWorkspace(t, {mutate});
+    assert.equal((await w.call('scout-approve', approvalBody(w.report, [0]))).data.error, error);
+    assert.deepEqual(await w.store.approvals('owner', ID), []);
+  }
+});
+
+test('stale versions, changed hashes, malformed batches and foreign requests cannot approve', async t => {
+  const w = await approvalWorkspace(t), valid = approvalBody(w.report, [0]);
+  for (const [body, error] of [
+    [{...valid, version: 2}, 'version_conflict'],
+    [{...valid, request_id: NEXT}, 'not_found'],
+    [{...valid, tickets: [{...valid.tickets[0], proposal_hash: 'f'.repeat(64)}]}, 'ticket_changed'],
+    [{...valid, tickets: [{...valid.tickets[0], ticket_id: 'missing'}]}, 'ticket_changed'],
+    [{...valid, tickets: [valid.tickets[0], valid.tickets[0]]}, 'invalid_input'],
+    [{...valid, tickets: []}, 'invalid_input'],
+    [{...valid, tickets: Array(22).fill(valid.tickets[0])}, 'invalid_input'],
+    [{...valid, tickets: [null]}, 'invalid_input'],
+    [{...valid, tickets: [{...valid.tickets[0], approved_at: new Date(NOW).toISOString()}]}, 'invalid_input'],
+    [{...valid, ttl_minutes: 10000}, 'invalid_input'],
+    [{...valid, trading_enabled: true}, 'invalid_input'],
+  ]) assert.equal((await w.call('scout-approve', body)).data.error, error);
+  assert.deepEqual(await w.store.approvals('owner', ID), []);
+  assert.equal((await w.call('scout-approve')).status, 405);
+});
+
+test('approval expiry is visible without renewing consent or reusing an expired ticket', async t => {
+  let time = NOW;
+  const w = await approvalWorkspace(t, {now: () => time});
+  await w.call('scout-approve', approvalBody(w.report, [0]));
+  const saved = await w.store.approvals('owner', ID);
+  time += 12 * 3600000;
+  const state = (await w.call('scout-status')).data;
+  assert.equal(state.approvals.tickets[0].status, 'EXPIRED');
+  assert.equal(state.approvals.tickets[0].eligible, false);
+  assert.equal((await w.call('scout-approve', approvalBody(w.report, [0], state.version))).data.error, 'ticket_review_expired');
+  assert.equal((await w.call('scout-approve', approvalBody(w.report, [1], state.version))).data.error, 'ticket_review_expired');
+  assert.deepEqual(await w.store.approvals('owner', ID), saved);
+});
+
+test('approval records survive newer Scouts but never transfer to them', async t => {
+  const w = await approvalWorkspace(t);
+  await w.call('scout-approve', approvalBody(w.report, [0]));
+  const approved = await w.store.approvals('owner', ID);
+  await w.store.change('owner', 2, {request_id: NEXT, status: 'running'});
+  assert.equal((await w.call('scout-status')).data.approvals.tickets[1].eligible, false);
+  assert.equal((await w.call('scout-approve', {...approvalBody(w.report, [1], 3), request_id: NEXT})).data.error, 'report_not_current');
+  await w.store.change('owner', 3, {status: 'completed', last_report: approvalFixtureReport({...initial, request_id: NEXT}, NOW)});
+  const state = (await w.call('scout-status')).data;
+  assert.ok(state.approvals.tickets.every(item => !item.approval));
+  assert.deepEqual(await w.store.approvals('owner', ID), approved);
+});
+
+test('concurrent approval batches cannot double-record or overwrite state', async t => {
+  const w = await approvalWorkspace(t), other = sqliteScoutStore(w.path);
+  w.cleanup.push(() => other.close());
+  const call = client(other, {...w.f, approvals: scoutApprovals({store: other, now: () => NOW})});
+  const results = await Promise.all([w.call('scout-approve', approvalBody(w.report)), call('scout-approve', approvalBody(w.report))]);
+  assert.ok(results.some(result => result.status === 200));
+  assert.ok(results.every(result => [200, 409].includes(result.status)));
+  assert.equal((await w.store.approvals('owner', ID)).length, 2);
+  assert.equal((await w.store.read('owner')).version, 2);
+});
+
+test('approval transaction rolls back its entire batch and state version on storage failure', async t => {
+  const w = await approvalWorkspace(t);
+  const ticket = approvalBody(w.report, [0]).tickets[0];
+  const item = {...ticket, approved_at: new Date(NOW).toISOString(), expires_at: new Date(NOW + 3600000).toISOString()};
+  await assert.rejects(w.store.saveApprovals('owner', 1, ID, [item, item]), {code: 'scout_storage_unavailable'});
+  assert.deepEqual(await w.store.approvals('owner', ID), []);
+  assert.equal((await w.store.read('owner')).version, 1);
+});
+
+test('local HTTP approval is same-origin only, supports a batch, and exposes no execution endpoint', async t => {
+  const w = await workspace(t), store = sqliteScoutStore(w.path), f = fixture({now: () => NOW});
+  const report = approvalFixtureReport(initial, NOW);
+  report.cycle.records = Array.from({length: 21}, (_, i) => ({...report.cycle.records[0], ticket_id: `P-SYNTHETIC-${i}`}));
+  await store.insert({...initial, owner_id: 'local-owner', status: 'completed', last_report: report});
+  store.close();
+  const directory = await web(w.root);
+  const {server, url} = await startScoutServer({databasePath: w.path, webDirectory: directory, cloud: f.cloud, now: () => NOW, port: 0});
+  w.cleanup.push(() => stop(server));
+  const body = approvalBody(report, Array.from({length: 21}, (_, i) => i));
+  assert.ok(JSON.stringify(body).length > 1024);
+  assert.equal((await httpCall(url, 'scout-approve', body, {Origin: 'https://untrusted.test'})).status, 403);
+  assert.equal((await fetch(`${url}/functions/v1/app?action=scout-approve`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})).status, 403);
+  const done = await (await httpCall(url, 'scout-approve', body)).json();
+  assert.equal(done.approvals.tickets.filter(item => item.status === 'APPROVED').length, 21);
+  assert.equal(done.trading_enabled, false);
+  for (const action of ['guard', 'execute', 'place-order', 'clear-halt']) assert.equal((await httpCall(url, action, {request_id: ID})).status, 404);
+  assert.equal((await httpCall(url, 'scout-approve', {padding: 'x'.repeat(9000)})).status, 413);
+  assert.deepEqual(f.counts, {creates: 0, sends: 0, collects: 0});
+});
+
+test('hosted research-only application does not expose approval recording', async t => {
+  const w = await workspace(t), store = sqliteScoutStore(w.path), f = fixture();
+  w.cleanup.push(() => store.close());
+  const call = client(store, f);
+  assert.equal((await call('scout-status')).data.approvals.enabled, false);
+  assert.equal((await call('scout-approve', {request_id: ID})).status, 404);
 });
 
 test('token loading is opt-in and a nonempty inherited token takes precedence', async t => {

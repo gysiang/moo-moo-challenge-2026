@@ -31,9 +31,18 @@ export function sqliteScoutStore(path) {
           error_code TEXT,
           last_report TEXT NOT NULL CHECK (json_valid(last_report))
         ); PRAGMA application_id = ${APPLICATION_ID}; PRAGMA user_version = 1;`);
-      } else if (version !== 1 || id !== APPLICATION_ID) {
+      } else if (![1, 2].includes(version) || id !== APPLICATION_ID) {
         throw new Error('Not a Scout database');
       }
+      if (version < 2) db.exec(`CREATE TABLE scout_approvals (
+        owner_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        ticket_id TEXT NOT NULL,
+        proposal_hash TEXT NOT NULL,
+        approved_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        PRIMARY KEY (owner_id, request_id, ticket_id, proposal_hash)
+      ) STRICT; PRAGMA user_version = 2;`);
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
     db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL');
@@ -52,6 +61,24 @@ export function sqliteScoutStore(path) {
           if (!keys.length || keys.some(key => !FIELDS.includes(key))) throw new Error('Invalid state fields');
           const update = db.prepare(`UPDATE scout_state SET ${keys.map(key => `${key} = ?`).join(', ')}, version = version + 1 WHERE owner_id = ? AND version = ? RETURNING *`);
           return update.get(...keys.map(key => encode(key, values[key])), owner, version);
+        });
+      },
+      async approvals(owner, request) {
+        try {
+          return db.prepare('SELECT ticket_id, proposal_hash, approved_at, expires_at FROM scout_approvals WHERE owner_id = ? AND request_id = ? ORDER BY ticket_id').all(owner, request);
+        } catch { throw new ScoutError('scout_storage_unavailable'); }
+      },
+      async saveApprovals(owner, version, request, approvals) {
+        return safe(() => {
+          db.exec('BEGIN IMMEDIATE');
+          try {
+            const row = db.prepare("UPDATE scout_state SET version = version + 1 WHERE owner_id = ? AND version = ? AND request_id = ? AND status = 'completed' RETURNING *").get(owner, version, request);
+            if (!row) { db.exec('ROLLBACK'); return null; }
+            const insertApproval = db.prepare('INSERT INTO scout_approvals (owner_id, request_id, ticket_id, proposal_hash, approved_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)');
+            for (const item of approvals) insertApproval.run(owner, request, item.ticket_id, item.proposal_hash, item.approved_at, item.expires_at);
+            db.exec('COMMIT');
+            return row;
+          } catch (error) { db.exec('ROLLBACK'); throw error; }
         });
       },
       close() { db.close(); },
